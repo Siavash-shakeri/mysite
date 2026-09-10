@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TacticalStrike — بازی اکشن تاکتیکی اول‌شخص</title>
+<meta name="description" content="دانلود رایگان بازی TacticalStrike: FPS تاکتیکی آفلاین برای ویندوز با بات‌های هوشمند، حالت بمب‌گذاری و سلاح‌های متنوع — بدون نیاز به نصب.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+<style>
+  :root{
+    --bg:#0a0e0c; --bg2:#0f1512; --card:#131a16; --line:rgba(255,255,255,.08);
+    --txt:#e8f0ea; --mut:#93a89b; --acc:#34d399; --acc2:#fbbf24; --danger:#fb7185;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:Vazirmatn,Tahoma,'Segoe UI',sans-serif;
+    line-height:1.9; overflow-x:hidden;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+
+  /* ---------- nav ---------- */
+  nav{
+    position:sticky;top:0;z-index:50;
+    background:rgba(10,14,12,.85);backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--line);
+  }
+  .nav-in{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{font-weight:900;font-size:1.15rem;letter-spacing:.5px;color:#fff;text-decoration:none;direction:ltr}
+  .logo b{color:var(--acc)}
+  .nav-links{display:flex;gap:22px;align-items:center}
+  .nav-links a{color:var(--mut);text-decoration:none;font-size:.92rem;font-weight:600;transition:color .2s}
+  .nav-links a:hover{color:var(--acc)}
+  .nav-cta{
+    background:var(--acc);color:#06281b!important;padding:8px 18px;border-radius:10px;
+    font-weight:800;font-size:.9rem;
+  }
+  .nav-cta:hover{background:#4ade80;color:#06281b!important}
+  @media(max-width:640px){.nav-links a:not(.nav-cta){display:none}}
+
+  /* ---------- hero ---------- */
+  header{
+    position:relative;padding:90px 0 70px;text-align:center;overflow:hidden;
+    background:
+      radial-gradient(circle at 20% 15%, rgba(52,211,153,.14) 0%, transparent 45%),
+      radial-gradient(circle at 80% 85%, rgba(251,191,36,.10) 0%, transparent 45%),
+      var(--bg2);
+  }
+  .cross{
+    position:absolute;inset:0;opacity:.07;pointer-events:none;
+    background:
+      radial-gradient(circle at 50% 42%, transparent 60px, #fff 60px, #fff 62px, transparent 63px),
+      linear-gradient(#fff 1px, transparent 1px) 50% 42%/2px 140px no-repeat,
+      linear-gradient(#fff 1px, transparent 1px) 50% 42%/140px 2px no-repeat;
+    background-size:auto, 2px 140px, 140px 2px;
+    background-position:center 42%, center 42%, center 42%;
+    background-repeat:no-repeat;
+  }
+  .badge-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:26px}
+  .badge{
+    border:1px solid var(--line);background:rgba(255,255,255,.04);
+    padding:6px 16px;border-radius:999px;font-size:.8rem;color:var(--mut);font-weight:600;
+  }
+  .badge.g{border-color:rgba(52,211,153,.4);color:var(--acc)}
+  h1{font-size:clamp(2.4rem,7vw,4.2rem);font-weight:900;letter-spacing:-1px;direction:ltr;line-height:1.2}
+  h1 b{color:var(--acc)}
+  .tagline{max-width:620px;margin:18px auto 34px;color:var(--mut);font-size:1.08rem}
+  .cta-row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;text-decoration:none;
+    padding:14px 30px;border-radius:14px;font-weight:800;font-size:1.02rem;transition:.2s;
+  }
+  .btn-main{background:var(--acc);color:#06281b;box-shadow:0 8px 30px rgba(52,211,153,.25)}
+  .btn-main:hover{transform:translateY(-2px);background:#4ade80}
+  .btn-ghost{border:1px solid var(--line);color:var(--txt);background:rgba(255,255,255,.03)}
+  .btn-ghost:hover{border-color:var(--acc);color:var(--acc)}
+
+  /* ---------- sections ---------- */
+  section{padding:64px 0}
+  .sec-title{text-align:center;margin-bottom:44px}
+  .sec-title h2{font-size:clamp(1.5rem,4vw,2.1rem);font-weight:900}
+  .sec-title p{color:var(--mut);margin-top:8px;font-size:.98rem}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px;
+    transition:transform .25s,border-color .25s;
+  }
+  .card:hover{transform:translateY(-4px);border-color:rgba(52,211,153,.35)}
+  .card .ic{font-size:1.9rem;margin-bottom:12px;display:block}
+  .card h3{font-size:1.06rem;font-weight:800;margin-bottom:8px}
+  .card p{color:var(--mut);font-size:.92rem}
+
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:18px;overflow:hidden;border:1px solid var(--line)}
+  th,td{padding:13px 18px;text-align:right;font-size:.93rem}
+  th{background:rgba(255,255,255,.04);color:var(--acc);font-weight:800;white-space:nowrap}
+  td{border-top:1px solid var(--line);color:var(--mut)}
+  td b{color:var(--txt)}
+  .tbl-scroll{overflow-x:auto;border-radius:18px}
+  kbd{
+    background:#1c2620;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;
+    padding:2px 9px;font-family:inherit;font-size:.82rem;color:var(--acc);white-space:nowrap;direction:ltr;display:inline-block
+  }
+
+  .req{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px}
+  .req .card h3{color:var(--acc2)}
+  .req ul{list-style:none;margin-top:6px}
+  .req li{color:var(--mut);font-size:.9rem;padding:3px 0}
+  .req li::before{content:"● ";color:var(--acc);font-size:.6rem;vertical-align:2px}
+
+  /* ---------- download ---------- */
+  .dl-box{
+    background:linear-gradient(135deg,rgba(52,211,153,.12),rgba(251,191,36,.06));
+    border:1px solid rgba(52,211,153,.35);border-radius:24px;padding:46px 30px;text-align:center;
+  }
+  .dl-box h2{font-size:clamp(1.5rem,4vw,2rem);font-weight:900}
+  .dl-box .sub{color:var(--mut);margin:10px 0 26px}
+  .steps{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:30px}
+  .step{
+    background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:14px;
+    padding:14px 20px;font-size:.88rem;color:var(--mut);max-width:240px;
+  }
+  .step b{color:var(--acc);display:block;margin-bottom:3px}
+  .note{margin-top:26px;font-size:.85rem;color:var(--mut)}
+  .note b{color:var(--acc2)}
+
+  footer{border-top:1px solid var(--line);padding:28px 0;text-align:center;color:var(--mut);font-size:.85rem}
+  footer b{color:var(--acc)}
+
+  /* reveal animation */
+  .rv{opacity:0;transform:translateY(24px);transition:opacity .7s ease,transform .7s ease}
+  .rv.on{opacity:1;transform:none}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="logo" href="#">TACTICAL<b>STRIKE</b> 🎯</a>
+    <div class="nav-links">
+      <a href="#features">ویژگی‌ها</a>
+      <a href="#weapons">سلاح‌ها</a>
+      <a href="#controls">کنترل‌ها</a>
+      <a href="#download" class="nav-cta">⬇ دانلود رایگان</a>
+    </div>
+  </div>
+</nav>
+
+<header>
+  <div class="cross"></div>
+  <div class="wrap">
+    <div class="badge-row">
+      <span class="badge g">نسخه ۱.۰</span>
+      <span class="badge">ویندوز ۱۰ / ۱۱ — ۶۴ بیتی</span>
+      <span class="badge">کاملاً آفلاین</span>
+      <span class="badge">بدون نیاز به نصب — فقط ۳.۹ مگابایت</span>
+    </div>
+    <h1>TACTICAL<b>STRIKE</b></h1>
+    <p class="tagline">
+      شوتر اول‌شخص تاکتیکی الهام‌گرفته از کلاسیک‌های نسل طلایی — با حالت بمب‌گذاری، بات‌های هوشمند،
+      اقتصاد واقعی و نقشه‌ی اختصاصی. همه‌ی دارایی‌ها اورجینال است و بازی کاملاً رایگان!
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-main" href="#download">⬇ دانلود — نسخه ویندوز</a>
+      <a class="btn btn-ghost" href="#features">🎮 ویژگی‌های بازی</a>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <div class="sec-title rv">
+      <h2>✨ ویژگی‌های اصلی</h2>
+      <p>هرچیزی که از یک شوتر تاکتیکی انتظار دارید — در یک فایل کوچک</p>
+    </div>
+    <div class="grid">
+      <div class="card rv"><span class="ic">💣</span><h3>حالت بمب‌گذاری</h3><p>رقابت تروریست در برابر ضدتروریست: کاشت و خنثی‌سازی بمب، تایمر ۴۰ ثانیه‌ای و راند‌های پرهیجان تا برد هشتم.</p></div>
+      <div class="card rv"><span class="ic">🤖</span><h3>بات‌های هوشمند</h3><p>هوش مصنوعی با مسیریابی، شنیدن صدای شلیک و قدم‌ها، تعویض موقعیت و ۴ درجه سختی از آسان تا خبره.</p></div>
+      <div class="card rv"><span class="ic">🔫</span><h3>۶ سلاح کامل</h3><p>چاقو، پیستول، اس‌ام‌جی، شاتگان، ریفل و اسنایپر با دوربین — هرکدام با پس‌زنی، پخش گلوله و خشاب مستقل.</p></div>
+      <div class="card rv"><span class="ic">💥</span><h3>۳ نوع نارنجک</h3><p>نارنجک انفجاری، فلش‌بنگ با کور شدن صفحه و دود واقعی که دید بات‌ها را هم می‌بندد.</p></div>
+      <div class="card rv"><span class="ic">🗺️</span><h3>نقشه‌ی FACILITY</h3><p>نقشه‌ی اختصاصی با دو سایت بمب، راهروهای متعدد، اتاق‌های بسته، درهای متحرک و مسیرهای جایگزین.</p></div>
+      <div class="card rv"><span class="ic">💰</span><h3>اقتصاد و خرید</h3><p>پول شروع، جایزه‌ی کیل و برد، بونس باخت و منوی خرید حین راند — مدیریت سرمایه مثل بازی‌های حرفه‌ای.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="weapons" style="background:var(--bg2)">
+  <div class="wrap">
+    <div class="sec-title rv">
+      <h2>🔫 زرادخانه</h2>
+      <p>مشخصات خلاصه‌ی سلاح‌ها (خشاب / قیمت در منوی خرید)</p>
+    </div>
+    <div class="tbl-scroll rv">
+      <table>
+        <thead><tr><th>سلاح</th><th>نوع</th><th>خشاب</th><th>نرخ شلیک</th><th>قیمت</th></tr></thead>
+        <tbody>
+          <tr><td><b>Knife</b> 🗡️</td><td>سرد</td><td>—</td><td>سریع</td><td>رایگان</td></tr>
+          <tr><td><b>P9</b></td><td>پیستول</td><td>۱۲</td><td>متوسط</td><td>رایگان (اولیه)</td></tr>
+          <tr><td><b>Viper-9</b></td><td>اس‌ام‌جی</td><td>۳۰</td><td>خیلی سریع</td><td>$1250</td></tr>
+          <tr><td><b>Mauler-12</b></td><td>شاتگان</td><td>۶</td><td>آهسته</td><td>$1700</td></tr>
+          <tr><td><b>AR-77 Falcon</b></td><td>ریفل</td><td>۳۰</td><td>سریع</td><td>$2700</td></tr>
+          <tr><td><b>LR-50 Longshot</b></td><td>اسنایپر</td><td>۵</td><td>گلنگدنی</td><td>$4750</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="controls">
+  <div class="wrap">
+    <div class="sec-title rv">
+      <h2>⌨️ کنترل‌ها</h2>
+      <p>با کیبورد و ماوس — بدون هیچ تنظیم اضافه</p>
+    </div>
+    <div class="tbl-scroll rv">
+      <table>
+        <thead><tr><th>کلید</th><th>عملکرد</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>W A S D</kbd></td><td>حرکت</td></tr>
+          <tr><td><kbd>MOUSE</kbd></td><td>نشانه‌گیری — <b>کلیک چپ: شلیک</b> — <b>کلیک راست: دوربین اسنایپر</b></td></tr>
+          <tr><td><kbd>R</kbd> / <kbd>B</kbd></td><td>پرکردن خشاب / منوی خرید</td></tr>
+          <tr><td><kbd>E</kbd> (نگه‌داشتن)</td><td>کاشت یا خنثی‌سازی بمب</td></tr>
+          <tr><td><kbd>G</kbd> / <kbd>4</kbd></td><td>پرتاب نارنجک انتخابی / تعویض نارنجک</td></tr>
+          <tr><td><kbd>1</kbd> تا <kbd>5</kbd></td><td>اسلات‌های سلاح</td></tr>
+          <tr><td><kbd>CTRL</kbd> / <kbd>SHIFT</kbd> / <kbd>SPACE</kbd></td><td>نشستن / راه‌رفتن بی‌صدا / پرش</td></tr>
+          <tr><td><kbd>TAB</kbd> / <kbd>ESC</kbd></td><td>جدول امتیازات / منوی توقف</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section style="background:var(--bg2)">
+  <div class="wrap">
+    <div class="sec-title rv">
+      <h2>🖥️ نیازمندی سیستم</h2>
+      <p>روی تقریباً هر سیستمی اجرا می‌شود — حتی لپ‌تاپ‌های قدیمی</p>
+    </div>
+    <div class="req rv">
+      <div class="card"><h3>حداقل</h3><ul>
+        <li>ویندوز ۱۰ — ۶۴ بیتی</li>
+        <li>پردازنده: اینتل/ای‌ام‌دی دو هسته‌ای</li>
+        <li>گرافیک: هر GPU با پشتیبانی OpenGL 3.3</li>
+        <li>حافظه: ۲ گیگابایت</li>
+        <li>فضا: ۵۰ مگابایت</li>
+      </ul></div>
+      <div class="card"><h3>پیشنهادی</h3><ul>
+        <li>ویندوز ۱۱ — ۶۴ بیتی</li>
+        <li>پردازنده: چهار هسته‌ای</li>
+        <li>گرافیک: مجتمع نسل ۲۰۱۵ به بعد</li>
+        <li>حافظه: ۴ گیگابایت</li>
+        <li>هدف: ۶۰ فریم بر ثانیه پایدار</li>
+      </ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <div class="dl-box rv">
+      <h2>⬇ دانلود رایگان — نسخه ۱.۰</h2>
+      <p class="sub">فایل ZIP شامل اجراییِ مستقل بازی؛ همه‌ی صداها داخل خود فایل است. نصب لازم نیست!</p>
+      <a class="btn btn-main" href="TacticalStrike_v1.0_Windows_x64.zip" download>📦 دانلود TacticalStrike (حدود ۳.۲ مگابایت)</a>
+      <div class="steps">
+        <div class="step"><b>قدم ۱</b>فایل ZIP را دانلود و Extract کنید</div>
+        <div class="step"><b>قدم ۲</b>روی TacticalStrike.exe دابل‌کلیک کنید</div>
+        <div class="step"><b>قدم ۳</b>PLAY را بزنید و لذت ببرید! 🎮</div>
+      </div>
+      <p class="note">
+        ⚠️ اگر ویندوز پیام SmartScreen داد: <b>More info → Run anyway</b> را بزنید.
+        <br>🔔 اعلان تلگرام هم دارد: بعد از اجرا، در Settings → Telegram با Test Connection فعالش کنید.
+      </p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    ساخته‌شده با ❤️ و کدنویسی هوش مصنوعی — تمام دارایی‌های بازی (گرافیک و صداها) <b>اورجینال</b> هستند.
+    <br>© ۲۰۲۶ TacticalStrike — همه‌ی حقوق محفوظ است.
+  </div>
+</footer>
+
+<script>
+  const io = new IntersectionObserver(es => {
+    es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('on'); io.unobserve(e.target); } });
+  }, { threshold: .12 });
+  document.querySelectorAll('.rv').forEach(el => io.observe(el));
+</script>
+</body>
+</html>
