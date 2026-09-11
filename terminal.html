@@ -7,6 +7,7 @@
 <meta name="description" content="دسترسی امن به ترمینال سرور TacticalStrike از داخل مرورگر">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
 <link rel="preload" href="fonts/Vazirmatn-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="vendor/xterm.min.css">
 <style>
   @font-face{
     font-family:Vazirmatn;
@@ -19,28 +20,31 @@
   }
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:var(--bg);color:var(--txt);font-family:Vazirmatn,Tahoma,'Segoe UI',sans-serif;line-height:1.9}
-  .wrap{max-width:860px;margin:0 auto;padding:0 20px}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
   nav{border-bottom:1px solid var(--line);background:rgba(10,14,12,.9)}
   .nav-in{display:flex;align-items:center;justify-content:space-between;height:60px}
   .logo{font-weight:900;color:#fff;text-decoration:none;direction:ltr}
   .logo b{color:var(--acc)}
   nav a.back{color:var(--mut);text-decoration:none;font-size:.9rem}
   nav a.back:hover{color:var(--acc)}
-  header{padding:60px 0 30px;text-align:center}
+  header{padding:48px 0 26px;text-align:center}
   h1{font-size:clamp(1.7rem,5vw,2.6rem);font-weight:900}
   h1 span{color:var(--acc)}
   .sub{color:var(--mut);margin-top:10px}
   .panel{
     background:linear-gradient(135deg,rgba(52,211,153,.10),rgba(251,191,36,.05));
-    border:1px solid rgba(52,211,153,.35);border-radius:24px;padding:40px 28px;text-align:center;
+    border:1px solid rgba(52,211,153,.35);border-radius:24px;padding:36px 26px;text-align:center;
   }
   .btn{
-    display:inline-flex;align-items:center;gap:10px;text-decoration:none;
-    background:var(--acc);color:#06281b;padding:15px 44px;border-radius:14px;
-    font-weight:800;font-size:1.08rem;transition:.2s;
+    display:inline-flex;align-items:center;gap:10px;text-decoration:none;border:none;cursor:pointer;
+    background:var(--acc);color:#06281b;padding:14px 42px;border-radius:14px;
+    font-family:inherit;font-weight:800;font-size:1.05rem;transition:.2s;
   }
   .btn:hover{transform:translateY(-2px);background:#4ade80}
-  .btn-note{margin-top:14px;font-size:.85rem;color:var(--mut)}
+  .btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+  .btn.ghost{background:transparent;color:var(--mut);border:1px solid var(--line);padding:10px 22px;font-size:.9rem}
+  .btn.ghost:hover{color:var(--txt);border-color:var(--acc)}
+  .btn-note{margin-top:12px;font-size:.85rem;color:var(--mut)}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin:36px 0}
   .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;text-align:center}
   .card .ic{font-size:1.7rem;display:block;margin-bottom:8px}
@@ -52,7 +56,51 @@
   }
   .warn b{color:var(--acc2)}
   footer{border-top:1px solid var(--line);padding:24px 0;text-align:center;color:var(--mut);font-size:.85rem;margin-top:40px}
-  #cfg-warn{display:none;margin-top:16px;color:var(--acc2);font-size:.9rem}
+
+  /* --- setup box (first-run) --- */
+  #setup{display:none;margin-top:22px;text-align:right;background:var(--bg2);border:1px solid var(--line);border-radius:18px;padding:24px}
+  #setup h3{font-size:1.02rem;font-weight:800;margin-bottom:8px}
+  #setup p{color:var(--mut);font-size:.88rem;margin-bottom:14px}
+  #setup code{direction:ltr;display:inline-block;background:#070a08;border:1px solid var(--line);border-radius:8px;padding:2px 10px;font-size:.8rem;color:var(--acc)}
+  .frow{display:flex;gap:10px;flex-wrap:wrap}
+  .frow input{
+    flex:1;min-width:230px;direction:ltr;text-align:left;background:#070a08;color:var(--txt);
+    border:1px solid var(--line);border-radius:12px;padding:12px 16px;font-family:'Fira Code',Menlo,monospace;font-size:.9rem;
+  }
+  .frow input:focus{outline:none;border-color:var(--acc)}
+  .setup-err{display:none;margin-top:10px;color:var(--danger);font-size:.85rem}
+
+  /* --- login gate --- */
+  #login{display:none;margin-top:22px;background:var(--bg2);border:1px solid var(--line);border-radius:18px;padding:24px;text-align:center}
+  #login h3{font-size:1.05rem;font-weight:800;margin-bottom:4px}
+  #login .hint{color:var(--mut);font-size:.85rem;margin-bottom:16px}
+  #pass{
+    direction:ltr;text-align:center;width:260px;max-width:100%;background:#070a08;color:var(--txt);
+    border:1px solid var(--line);border-radius:12px;padding:12px 16px;font-size:1.05rem;letter-spacing:.25em;
+  }
+  #pass:focus{outline:none;border-color:var(--acc)}
+  .login-err{display:none;margin-top:12px;color:var(--danger);font-size:.88rem}
+  .login-err b{color:var(--acc2)}
+
+  /* --- terminal panel --- */
+  #termwrap{display:none;margin-top:26px;background:#070a08;border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+  .term-bar{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    background:#0d130f;border-bottom:1px solid var(--line);padding:10px 16px;
+  }
+  .term-bar .st{display:flex;align-items:center;gap:9px;font-size:.85rem;color:var(--mut)}
+  .term-bar .dot{width:9px;height:9px;border-radius:50%;background:var(--acc2);flex:none}
+  .term-bar .dot.ok{background:var(--acc);box-shadow:0 0 10px rgba(52,211,153,.7)}
+  .term-bar .dot.err{background:var(--danger)}
+  .term-bar .acts{display:flex;gap:8px}
+  .term-bar button{
+    font-family:inherit;background:transparent;color:var(--mut);border:1px solid var(--line);
+    border-radius:9px;padding:5px 14px;font-size:.78rem;cursor:pointer;transition:.15s;
+  }
+  .term-bar button:hover{color:var(--txt);border-color:var(--acc)}
+  #term{direction:ltr;text-align:left;padding:10px 8px;height:min(62vh,560px)}
+  #term .xterm .xterm-viewport{background:#070a08 !important}
+  .xterm .xterm-screen{margin:0 auto}
 
   /* fake terminal preview */
   .term-preview{
@@ -65,6 +113,7 @@
   .dot:nth-child(1){background:#fb718580}.dot:nth-child(2){background:#fbbf2480}.dot:nth-child(3){background:#34d39980}
   .term-preview .ln{white-space:pre;color:#93a89b}
   .term-preview .ln b{color:#34d399;font-weight:400}
+  @media (max-width:560px){ #term{height:52vh} }
 </style>
 </head>
 <body>
@@ -79,7 +128,7 @@
 <header>
   <div class="wrap">
     <h1>🖥️ ترمینال <span>VPS</span></h1>
-    <p class="sub">دسترسی زنده به شل سرور — مستقیم از مرورگر، بدون هیچ نصبی</p>
+    <p class="sub">دسترسی زنده به شل سرور — مستقیم داخل همین صفحه، بدون هیچ نصبی</p>
     <div class="term-preview">
       <div class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
       <div class="ln"><b>z@tacticalstrike:~$</b> systemctl status game</div>
@@ -91,9 +140,47 @@
 
 <main class="wrap">
   <div class="panel">
-    <a class="btn" id="open-term" href="#" target="_blank" rel="noopener">⚡ ورود به ترمینال زنده</a>
-    <p class="btn-note">در تب جدید باز می‌شود — ورود با رمز عبور ترمینال</p>
-    <p id="cfg-warn">⚠️ آدرس ترمینال هنوز تنظیم نشده — به سازنده اطلاع بدهید.</p>
+    <div id="intro">
+      <button class="btn" id="open-term">⚡ اتصال به ترمینال زنده</button>
+      <p class="btn-note">ورود با رمز عبور ترمینال — شل واقعی bash داخل مرورگر</p>
+    </div>
+
+    <!-- first-run: ask for server address once -->
+    <div id="setup">
+      <h3>۱ از ۲ — آدرس سرور ترمینال</h3>
+      <p>
+        آدرس صفحهٔ Preview (پیش‌نمایش) این چت را وارد کنید؛ چیزی شبیه:
+        <code>https://preview-xxxxxxxx.space-z.ai</code>
+        <br>یک بار وارد می‌شود و در همین مرورگر ذخیره می‌ماند.
+      </p>
+      <div class="frow">
+        <input id="srv-url" type="url" placeholder="https://preview-xxxxxxxx.space-z.ai" spellcheck="false" autocomplete="off">
+        <button class="btn" id="save-url">ذخیره و ادامه</button>
+      </div>
+      <p class="setup-err" id="setup-err"></p>
+    </div>
+
+    <!-- step 2: password -->
+    <div id="login">
+      <h3>۲ از ۲ — رمز عبور ترمینال</h3>
+      <p class="hint">رمز را که سازنده به شما داده وارد کنید — بعد از ۵ تلاش اشتباه، ۱ دقیقه مسدود می‌شوید</p>
+      <input id="pass" type="password" placeholder="••••••••" autocomplete="off">
+      <br>
+      <button class="btn" id="do-login" style="margin-top:16px">ورود به شل</button>
+      <p class="login-err" id="login-err"></p>
+    </div>
+  </div>
+
+  <!-- live terminal -->
+  <div id="termwrap">
+    <div class="term-bar">
+      <div class="st"><span class="dot" id="st-dot"></span><span id="st-txt">در حال اتصال…</span></div>
+      <div class="acts">
+        <button id="btn-reconnect">اتصال مجدد</button>
+        <button id="btn-close">قطع اتصال</button>
+      </div>
+    </div>
+    <div id="term"></div>
   </div>
 
   <div class="grid">
@@ -104,8 +191,9 @@
   </div>
 
   <div class="warn">
-    ⚠️ <b>نکته مهم:</b> این ترمینال روی سرور ابریِ جلسه فعلی اجرا می‌شود؛ یعنی تا زمانی که سشن دستیار فعال است
-    در دسترس است و با ریست شدن سرور، موقتاً آفلاین می‌شود (با یک پیام دوباره روشن می‌شود).
+    ⚠️ <b>نکته مهم:</b> این ترمینال روی سرور ابریِ جلسهٔ فعلی دستیار اجرا می‌شود؛ یعنی تا زمانی که سشن دستیار فعال است
+    در دسترس است و با ریست شدن سرور موقتاً آفلاین می‌شود (با یک پیام دوباره روشن می‌شود). آدرس سرور را در صورت
+    تغییر می‌توانید از دکمهٔ «تغییر آدرس» در نوار ترمینال به‌روزرسانی کنید.
   </div>
 </main>
 
@@ -113,20 +201,227 @@
   TacticalStrike VPS Terminal — اتصال امن رمزگذاری‌شده
 </footer>
 
+<script src="vendor/socket.io.min.js"></script>
+<script src="vendor/xterm.min.js"></script>
+<script src="vendor/addon-fit.min.js"></script>
 <script>
-  // آدرس سرویس ترمینال — توسط سازنده تنظیم می‌شود
+  // آدرس ثابت سرور — اگر خالی باشد از حافظهٔ مرورگر خوانده می‌شود
   const TERMINAL_URL = "";
 
-  const btn = document.getElementById('open-term');
-  const warn = document.getElementById('cfg-warn');
-  if (TERMINAL_URL) {
-    btn.href = TERMINAL_URL;
+  const LS_KEY = 'ts_term_url';
+  const PTCFG = { path: '/', transports: ['polling', 'websocket'], reconnection: false, timeout: 15000 };
+
+  const $ = (id) => document.getElementById(id);
+  const intro = $('intro'), setup = $('setup'), login = $('login'), termwrap = $('termwrap');
+  const stDot = $('st-dot'), stTxt = $('st-txt'), loginErr = $('login-err'), setupErr = $('setup-err');
+
+  let serverUrl = (TERMINAL_URL || localStorage.getItem(LS_KEY) || '').replace(/\/+$/, '');
+  let socket = null, term = null, fitAddon = null, resizeTimer = null;
+
+  function show(el, on = true) { el.style.display = on ? (el.tagName === 'DIV' ? 'block' : 'inline-flex') : 'none'; }
+  function status(txt, kind) {
+    stTxt.textContent = txt;
+    stDot.className = 'dot' + (kind === 'ok' ? ' ok' : kind === 'err' ? ' err' : '');
+  }
+  function validUrl(u) {
+    try {
+      const p = new URL(u);
+      if (p.protocol !== 'https:' && p.protocol !== 'http:') return null;
+      return p.origin;
+    } catch (e) { return null; }
+  }
+
+  /* ---------- flow ---------- */
+  if (!serverUrl) {
+    // first run: show setup box instead of jumping to login
+    $('open-term').addEventListener('click', () => {
+      show(setup); $('srv-url').focus();
+      setup.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    $('save-url').addEventListener('click', saveUrl);
+    $('srv-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveUrl(); });
   } else {
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      warn.style.display = 'block';
+    $('open-term').addEventListener('click', () => gotoLogin());
+  }
+
+  function saveUrl() {
+    const raw = $('srv-url').value.trim().replace(/\/+$/, '');
+    const fixed = (location.protocol === 'https:' && raw.startsWith('http://')) ? raw.replace('http://', 'https://') : raw;
+    const ok = validUrl(fixed);
+    if (!ok) {
+      setupErr.textContent = '⛔ آدرس نامعتبر است — مثال: https://preview-xxxxxxxx.space-z.ai';
+      setupErr.style.display = 'block';
+      return;
+    }
+    serverUrl = ok;
+    try { localStorage.setItem(LS_KEY, serverUrl); } catch (e) {}
+    setupErr.style.display = 'none';
+    show(setup, false);
+    gotoLogin();
+  }
+
+  function gotoLogin() {
+    show(intro, false);
+    show(login);
+    $('pass').focus();
+    login.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  $('do-login').addEventListener('click', connect);
+  $('pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
+
+  function connect() {
+    const pass = $('pass').value;
+    if (!pass) { loginErr.textContent = '⛔ رمز عبور را وارد کنید'; loginErr.style.display = 'block'; return; }
+    show(login, false);
+    show(termwrap);
+    termwrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    openTerminal(pass);
+  }
+
+  /* ---------- terminal ---------- */
+  function openTerminal(password) {
+    if (term) { try { term.dispose(); } catch (e) {} }
+    term = new Terminal({
+      cursorBlink: true,
+      fontSize: window.innerWidth < 560 ? 12 : 14,
+      fontFamily: "'Fira Code', Menlo, Consolas, monospace",
+      theme: {
+        background: '#070a08', foreground: '#d7e5dc', cursor: '#34d399',
+        selectionBackground: 'rgba(52,211,153,.30)',
+        black: '#0d130f', green: '#34d399', yellow: '#fbbf24', red: '#fb7185',
+        brightBlack: '#93a89b', brightGreen: '#6ee7b7',
+      },
+    });
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open($('term'));
+    try { fitAddon.fit(); } catch (e) {}
+    term.onData((d) => { if (socket) socket.emit('input', d); });
+    term.focus();
+
+    status('در حال اتصال به سرور…');
+    socket = io(serverUrl + '/?XTransformPort=3003', PTCFG);
+
+    let authed = false;
+
+    socket.on('need-auth', () => socket.emit('auth', { password }));
+
+    socket.on('auth-ok', () => {
+      authed = true;
+      status('در حال راه‌اندازی شل…');
+    });
+
+    socket.on('auth-failed', (d) => {
+      const left = (d && d.attemptsLeft) != null ? d.attemptsLeft : '?';
+      status('رمز عبور اشتباه است', 'err');
+      term.writeln('\x1b[38;5;203m✗ رمز عبور اشتباه — تلاش‌های باقی‌مانده: ' + left + '\x1b[0m');
+      backToLogin('⛔ رمز عبور اشتباه است — تلاش‌های باقی‌مانده: ' + left);
+    });
+
+    socket.on('auth-blocked', (d) => {
+      const s = (d && d.seconds) || 60;
+      status('مسدود شده', 'err');
+      term.writeln('\x1b[38;5;203m⛔ تلاش‌های زیاد — ' + s + ' ثانیه صبر کنید\x1b[0m');
+      backToLogin('⛔ تعداد تلاش‌ها زیاد بود — ' + s + ' ثانیه دیگر دوباره امتحان کنید');
+    });
+
+    socket.on('auth-timeout', () => {
+      status('اتصال باطل شد', 'err');
+      backToLogin('⛔ زمان ورود به پایان رسید — دوباره تلاش کنید');
+    });
+
+    socket.on('server-busy', () => {
+      status('سرور شلوغ است', 'err');
+      term.writeln('\x1b[38;5;215m⚠ حداکثر ۳ نشست همزمان باز است — یکی از ترمینال‌ها را ببندید\x1b[0m');
+      socket.disconnect();
+    });
+
+    socket.on('pty-ready', () => {
+      status('متصل — z@tacticalstrike', 'ok');
+      term.focus();
+      sendResize();
+    });
+
+    socket.on('pty-error', () => {
+      status('خطای شل', 'err');
+      term.writeln('\x1b[38;5;203m✗ راه‌اندازی شل ناموفق بود\x1b[0m');
+    });
+
+    socket.on('output', (d) => { try { term.write(d); } catch (e) {} });
+
+    socket.on('pty-exit', () => {
+      status('نشست پایان یافت', 'err');
+      term.writeln('\r\n\x1b[38;5;109m— نشست شل بسته شد؛ «اتصال مجدد» را بزنید —\x1b[0m');
+    });
+
+    socket.on('disconnect', () => {
+      if (authed) { status('قطع شد', 'err'); term.writeln('\r\n\x1b[38;5;215m⚠ اتصال قطع شد — «اتصال مجدد» را بزنید\x1b[0m'); }
+    });
+
+    socket.on('connect_error', (err) => {
+      const offline = err && (err.type === 'TimeoutError' || /timeout|xhr|network/i.test(err.message || ''));
+      status(offline ? 'سرور در دسترس نیست' : 'خطای اتصال', 'err');
+      term.writeln('\x1b[38;5;203m✗ اتصال به ' + serverUrl + ' ناموفق بود\x1b[0m');
+      if (offline) {
+        term.writeln('\x1b[38;5;109m  احتمالاً سرور آفلاین است یا آدرس اشتباه است.');
+        term.writeln('  با سازنده تماس بگیرید یا از «تغییر آدرس» استفاده کنید.\x1b[0m');
+      }
     });
   }
+
+  function backToLogin(msg) {
+    if (socket) { try { socket.disconnect(); } catch (e) {} socket = null; }
+    if (msg) { loginErr.textContent = msg; loginErr.style.display = 'block'; }
+    else loginErr.style.display = 'none';
+    show(termwrap, false);
+    show(login);
+    $('pass').value = '';
+    $('pass').focus();
+  }
+
+  function sendResize() {
+    if (socket && socket.connected && term) socket.emit('resize', { cols: term.cols, rows: term.rows });
+  }
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (fitAddon && termwrap.style.display !== 'none') {
+        try { fitAddon.fit(); sendResize(); } catch (e) {}
+      }
+    }, 200);
+  });
+
+  $('btn-reconnect').addEventListener('click', () => {
+    const pass = $('pass').value;
+    if (socket) { try { socket.disconnect(); } catch (e) {} socket = null; }
+    if (pass) openTerminal(pass);
+    else { show(termwrap, false); gotoLogin(); }
+  });
+
+  $('btn-close').addEventListener('click', () => {
+    if (socket) { try { socket.disconnect(); } catch (e) {} socket = null; }
+    show(termwrap, false);
+    show(intro);
+  });
+
+  // change address: clear saved URL, back to setup
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && termwrap.style.display !== 'none') { /* keep open */ }
+  });
+  (function addChangeAddrBtn() {
+    const b = document.createElement('button');
+    b.textContent = 'تغییر آدرس';
+    b.addEventListener('click', () => {
+      if (socket) { try { socket.disconnect(); } catch (e) {} socket = null; }
+      try { localStorage.removeItem(LS_KEY); } catch (e) {}
+      serverUrl = '';
+      show(termwrap, false); show(login, false); show(setup);
+      $('srv-url').value = '';
+      $('srv-url').focus();
+    });
+    document.querySelector('.term-bar .acts').prepend(b);
+  })();
 </script>
 </body>
 </html>
