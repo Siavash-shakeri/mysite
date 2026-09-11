@@ -69,6 +69,10 @@
   }
   .frow input:focus{outline:none;border-color:var(--acc)}
   .setup-err{display:none;margin-top:10px;color:var(--danger);font-size:.85rem}
+  .srv-status{display:none;margin-top:12px;font-size:.88rem;min-height:1.5em}
+  .srv-status.ok{display:block;color:var(--acc)}
+  .srv-status.err{display:block;color:var(--danger)}
+  .srv-status.wait{display:block;color:var(--acc2)}
 
   /* --- login gate --- */
   #login{display:none;margin-top:22px;background:var(--bg2);border:1px solid var(--line);border-radius:18px;padding:24px;text-align:center}
@@ -149,14 +153,17 @@
     <div id="setup">
       <h3>۱ از ۲ — آدرس سرور ترمینال</h3>
       <p>
-        آدرس صفحهٔ Preview (پیش‌نمایش) این چت را وارد کنید؛ چیزی شبیه:
-        <code>https://preview-xxxxxxxx.space-z.ai</code>
+        <b>از کجا لینک را بیاورم؟</b> در بالای همین چت روی پنل <b>Preview / پیش‌نمایش</b> کلیک کن؛
+        وقتی صفحه باز شد، لینک را از <b>نوار آدرس مرورگر</b> کپی کن و اینجا بچسبان.
+        <br>شبیه این است ولی به‌جای <code>xxxx</code> شناسهٔ واقعی خودت را دارد:
+        <code>https://preview-xxxx.space-z.ai</code>
         <br>یک بار وارد می‌شود و در همین مرورگر ذخیره می‌ماند.
       </p>
       <div class="frow">
-        <input id="srv-url" type="url" placeholder="https://preview-xxxxxxxx.space-z.ai" spellcheck="false" autocomplete="off">
+        <input id="srv-url" type="url" placeholder="لینک واقعی خودت را اینجا بچسبان…" spellcheck="false" autocomplete="off">
         <button class="btn" id="save-url">ذخیره و ادامه</button>
       </div>
+      <p class="srv-status" id="srv-status"></p>
       <p class="setup-err" id="setup-err"></p>
     </div>
 
@@ -240,20 +247,52 @@
     });
     $('save-url').addEventListener('click', saveUrl);
     $('srv-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveUrl(); });
+    // live probe while typing (debounced)
+    let probeTimer = null;
+    $('srv-url').addEventListener('input', () => {
+      clearTimeout(probeTimer);
+      probeTimer = setTimeout(() => probeServer($('srv-url').value.trim()), 700);
+    });
   } else {
     $('open-term').addEventListener('click', () => gotoLogin());
   }
 
-  function saveUrl() {
-    const raw = $('srv-url').value.trim().replace(/\/+$/, '');
-    const fixed = (location.protocol === 'https:' && raw.startsWith('http://')) ? raw.replace('http://', 'https://') : raw;
-    const ok = validUrl(fixed);
-    if (!ok) {
-      setupErr.textContent = '⛔ آدرس نامعتبر است — مثال: https://preview-xxxxxxxx.space-z.ai';
-      setupErr.style.display = 'block';
-      return;
+  const srvStatus = $('srv-status');
+  function setStatus(txt, cls) { srvStatus.textContent = txt; srvStatus.className = 'srv-status ' + cls; }
+
+  // checks the address is a REAL reachable terminal server (not the placeholder example)
+  async function probeServer(raw) {
+    if (!raw) { srvStatus.className = 'srv-status'; return null; }
+    if (/xxxx|^\s*https?:\/\/preview-[a-z]*\.space-z\.ai\s*$/i.test(raw)) {
+      setStatus('⛔ این همان «نمونهٔ» راهنماست، نه لینک واقعی! به‌جای xxxx باید شناسهٔ خودت باشد — لینک واقعی را از نوار آدرس پنل Preview کپی کن', 'err');
+      return null;
     }
-    serverUrl = ok;
+    const fixed = (location.protocol === 'https:' && raw.startsWith('http://')) ? raw.replace('http://', 'https://') : raw;
+    const origin = validUrl(fixed);
+    if (!origin) { setStatus('⛔ این یک آدرس معتبر نیست — با https:// شروع شود', 'err'); return null; }
+    setStatus('… در حال بررسی سرور', 'wait');
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 7000);
+      const r = await fetch(origin + '/?XTransformPort=3003&EIO=4&transport=polling', { signal: ctl.signal });
+      clearTimeout(t);
+      const txt = (await r.text()).slice(0, 200);
+      if (txt.startsWith('0{') && txt.includes('"sid"')) {
+        setStatus('✅ سرور پیدا شد و ترمینال روشن است — «ذخیره و ادامه» را بزن', 'ok');
+        return origin;
+      }
+      setStatus('⚠ این آدرس جواب داد ولی ترمینال روی آن نیست — لینک دیگری است', 'err');
+      return null;
+    } catch (e) {
+      setStatus('✗ سرور در دسترس نیست — آدرس را کامل و دقیق کپی کن (از نوار آدرس پنل Preview)', 'err');
+      return null;
+    }
+  }
+
+  async function saveUrl() {
+    const origin = await probeServer($('srv-url').value.trim());
+    if (!origin) return;               // message already shown by probe
+    serverUrl = origin;
     try { localStorage.setItem(LS_KEY, serverUrl); } catch (e) {}
     setupErr.style.display = 'none';
     show(setup, false);
