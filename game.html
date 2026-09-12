@@ -289,14 +289,14 @@ body{font-family:'Vazirmatn','Segoe UI',Tahoma,sans-serif;color:#e8ecf1;user-sel
 <div id="ctxLost">خطای گرافیک! لطفاً بازی را دوباره باز کنید.</div>
 
 <script>
-/* ===== TacticalStrike v3.0 — full rewrite. Custom WebGL engine (no libs). ===== */
+/* ===== TacticalStrike v3.1 — perf edition. Custom WebGL engine (no libs). ===== */
 'use strict';
 var TS = {
-  VER: '3.0',
+  VER: '3.1',
   gstate: 'boot',            // boot | menu | live | paused | over
   curPanel: 'pMain',
   settings: {sens:1.0, qual:1, vol:0.8, mus:0.5, assist:1, shake:1, fps:0},
-  gl:null, cw:0, ch:0, rscale:1, quality:1,
+  gl:null, cw:0, ch:0, rscale:0.85, quality:1, cloudOn:1,
   time:0, dt:0, dtScale:1, frame:0,
   map:null, actors:[], bullets:[], decals:[], parts:[], casings:[], tracers:[],
   player:null, mode:'tdm', mapId:'town', chosenPrim:4, chosenSec:0,
@@ -338,21 +338,26 @@ function makeNoise(seed, sz){ // returns fn(x,y in 0..1) -> 0..1 value-noise wit
     return lerp(lerp(a,b,xf),lerp(c,d,xf),yf); }
   return function(x,y){ var v=0,amp=.5,f=1; for(var o=0;o<5;o++){ v+=oct(x*f,y*f)*amp; f*=2; amp*=.5; } return v; };
 }
-/* ---------- mat4 (column-major) ---------- */
+/* ---------- mat4 (column-major, zero-alloc hot paths) ---------- */
 var M4={
+ ID16:(function(){ var m=new Float32Array(16); m[0]=m[5]=m[10]=m[15]=1; return m; })(),
  ident:function(){ var m=new Float32Array(16); m[0]=m[5]=m[10]=m[15]=1; return m; },
+ /* scratch pool: transient matrices consumed within the same expression/frame */
+ pool:(function(){ var p=[]; for(var i=0;i<64;i++) p.push(new Float32Array(16)); return p; })(),
+ pi:0,
+ tmp:function(){ M4.pi=(M4.pi+1)%64; return M4.pool[M4.pi]; },
  mul:function(a,b,o){ o=o||new Float32Array(16);
    for(var c=0;c<4;c++)for(var r=0;r<4;r++){ var s=0; for(var k=0;k<4;k++) s+=a[k*4+r]*b[c*4+k]; o[c*4+r]=s; } return o; },
  persp:function(fov,asp,n,f,o){ o=o||new Float32Array(16); o.fill(0); var t=1/M.tan(fov/2);
    o[0]=t/asp; o[5]=t; o[10]=(f+n)/(n-f); o[11]=-1; o[14]=2*f*n/(n-f); return o; },
- trans:function(x,y,z,o){ o=o||new Float32Array(16); o.set(M4.ident()); o[12]=x; o[13]=y; o[14]=z; return o; },
- rotX:function(a,o){ o=o||new Float32Array(16); o.set(M4.ident()); var c=M.cos(a),s=M.sin(a); o[5]=c;o[6]=s;o[9]=-s;o[10]=c; return o; },
- rotY:function(a,o){ o=o||new Float32Array(16); o.set(M4.ident()); var c=M.cos(a),s=M.sin(a); o[0]=c;o[2]=-s;o[8]=s;o[10]=c; return o; },
- rotZ:function(a,o){ o=o||new Float32Array(16); o.set(M4.ident()); var c=M.cos(a),s=M.sin(a); o[0]=c;o[1]=s;o[4]=-s;o[5]=c; return o; },
- scale:function(x,y,z,o){ o=o||new Float32Array(16); o.set(M4.ident()); o[0]=x;o[5]=y;o[10]=z; return o; },
+ trans:function(x,y,z,o){ o=o||new Float32Array(16); o.set(M4.ID16); o[12]=x; o[13]=y; o[14]=z; return o; },
+ rotX:function(a,o){ o=o||new Float32Array(16); o.set(M4.ID16); var c=M.cos(a),s=M.sin(a); o[5]=c;o[6]=s;o[9]=-s;o[10]=c; return o; },
+ rotY:function(a,o){ o=o||new Float32Array(16); o.set(M4.ID16); var c=M.cos(a),s=M.sin(a); o[0]=c;o[2]=-s;o[8]=s;o[10]=c; return o; },
+ rotZ:function(a,o){ o=o||new Float32Array(16); o.set(M4.ID16); var c=M.cos(a),s=M.sin(a); o[0]=c;o[1]=s;o[4]=-s;o[5]=c; return o; },
+ scale:function(x,y,z,o){ o=o||new Float32Array(16); o.set(M4.ID16); o[0]=x;o[5]=y;o[10]=z; return o; },
  /* FPS view matrix: translate then yaw then pitch (world->view) */
  view:function(px,py,pz,yaw,pitch,o){ o=o||new Float32Array(16);
-   M4.mul(M4.rotX(-pitch), M4.rotY(-yaw), o); 
+   M4.mul(M4.rotX(-pitch,M4.tmp()), M4.rotY(-yaw,M4.tmp()), o); 
    o[12]=-(o[0]*px+o[4]*py+o[8]*pz); o[13]=-(o[1]*px+o[5]*py+o[9]*pz); o[14]=-(o[2]*px+o[6]*py+o[10]*pz); return o; }
 };
 /* direction helpers: yaw=0 faces -Z ; yaw+ turns toward +X (right) ; pitch+ = up */
@@ -515,7 +520,7 @@ TS.glInit = function(){
   var FS_SKY = [
     'precision mediump float; varying vec2 vN;',
     'uniform vec3 uFwd,uRight,uUp,uSunDir,uTop,uHor,uBot,uSunCol;',
-    'uniform float uTanF,uAsp,uTime;',
+    'uniform float uTanF,uAsp,uTime,uCloud;',
     'float h21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }',
     'float vn(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);',
     '  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x),mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x),f.y); }',
@@ -525,7 +530,7 @@ TS.glInit = function(){
     '  vec3 col = t>0.0 ? mix(uHor,uTop,pow(t,0.62)) : mix(uHor,uBot,pow(-t,0.5));',
     '  float sd=max(dot(r,-uSunDir),0.0);',
     '  col+=uSunCol*(pow(sd,600.0)*1.2+pow(sd,8.0)*0.18);',
-    '  if(r.y>0.02){ vec2 uv=r.xz/(r.y+0.12)*0.9+vec2(uTime*0.006,uTime*0.002);',
+    '  if(uCloud>0.5&&r.y>0.02){ vec2 uv=r.xz/(r.y+0.12)*0.9+vec2(uTime*0.006,uTime*0.002);',
     '    float c=vn(uv*3.0)*0.6+vn(uv*7.0)*0.4;',
     '    float cl=smoothstep(0.55,0.85,c)*0.55*(1.0-t*0.9);',
     '    col=mix(col,vec3(1.04,1.0,0.96),cl); }',
@@ -557,7 +562,7 @@ TS.glInit = function(){
   TS.P = {
     world: prog(VS_WORLD,FS_WORLD,['aPos','aNrm','aUV','aShade'],
       ['uProj','uView','uModel','uTex','uSunDir','uSunCol','uAmbTop','uAmbBot','uFogCol','uCamPos','uFogK','uLPos','uLCol','uTint','uUnlit','uEmit']),
-    sky: prog(VS_SKY,FS_SKY,['aP'],['uFwd','uRight','uUp','uSunDir','uTop','uHor','uBot','uSunCol','uTanF','uAsp','uTime']),
+    sky: prog(VS_SKY,FS_SKY,['aP'],['uFwd','uRight','uUp','uSunDir','uTop','uHor','uBot','uSunCol','uTanF','uAsp','uTime','uCloud']),
     part: prog(VS_PART,FS_PART,['aPos','aCol','aSize'],['uProj','uView','uPx','uSoft'])
   };
   /* sky fullscreen triangle */
@@ -762,6 +767,73 @@ TS.bindAttribs = function(){
   gl.vertexAttribPointer(2,2,gl.FLOAT,false,36,24);
   gl.vertexAttribPointer(3,1,gl.FLOAT,false,36,32);
 };
+/* ===== DynMesh: persistent GL buffers, ZERO steady-state allocation =====
+   Same quad/box API as MeshBuilder but writes into preallocated typed arrays
+   and uploads with bufferSubData. Fixes per-frame createBuffer leak (lag). */
+TS.DynMesh = function(maxV,maxI){
+  maxV=maxV||512; maxI=maxI||768;
+  this.fv=new Float32Array(maxV*9); this.iv=new Uint16Array(maxI);
+  this.vcap=maxV; this.icap=maxI; this.v=0; this.ic=0; this.n=0;
+  var gl=TS.gl;
+  this.vb=gl.createBuffer(); this.ib=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,this.vb);
+  gl.bufferData(gl.ARRAY_BUFFER,this.fv.byteLength,gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ib);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,this.iv.byteLength,gl.DYNAMIC_DRAW);
+  this._grown=false;
+};
+TS.DynMesh.prototype={
+  reset:function(){ this.v=0; this.ic=0; },
+  _grow:function(){
+    /* rare: double capacity and re-spec storage */
+    var gl=TS.gl;
+    var nv=this.vcap*2, ni=this.icap*2;
+    var fv=new Float32Array(nv*9); fv.set(this.fv);
+    var iv=new Uint16Array(ni); iv.set(this.iv);
+    this.fv=fv; this.iv=iv; this.vcap=nv; this.icap=ni;
+    gl.bindBuffer(gl.ARRAY_BUFFER,this.vb);
+    gl.bufferData(gl.ARRAY_BUFFER,fv.byteLength,gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,iv.byteLength,gl.DYNAMIC_DRAW);
+  },
+  quad:function(p0,p1,p2,p3,n,uvs,shade){
+    if(this.v+4>this.vcap||this.ic+6>this.icap) this._grow();
+    var fv=this.fv,o=this.v*9, uv=uvs||TS._UVQ, s=shade==null?1:shade;
+    var pts0=p0,pts1=p1,pts2=p2,pts3=p3;
+    for(var i=0;i<4;i++){ var pt=i===0?pts0:i===1?pts1:i===2?pts2:pts3, u=uv[i];
+      var b=o+i*9;
+      fv[b]=pt[0]; fv[b+1]=pt[1]; fv[b+2]=pt[2];
+      fv[b+3]=n[0]; fv[b+4]=n[1]; fv[b+5]=n[2];
+      fv[b+6]=u[0]; fv[b+7]=u[1]; fv[b+8]=s; }
+    var iv=this.iv, base=this.v, ic=this.ic;
+    iv[ic]=base; iv[ic+1]=base+1; iv[ic+2]=base+2;
+    iv[ic+3]=base; iv[ic+4]=base+2; iv[ic+5]=base+3;
+    this.v+=4; this.ic+=6;
+  },
+  box:function(cx,cy,cz,w,h,d,shade,uvS){
+    var x0=cx-w/2,x1=cx+w/2,y0=cy-h/2,y1=cy+h/2,z0=cz-d/2,z1=cz+d/2;
+    var s=shade==null?1:shade;
+    var k=(uvS||1)*0.5;
+    var uw=w*k, uh=h*k, ud=d*k;
+    this.quad([x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1],[0,0,1],[[0,0],[uw,0],[uw,uh],[0,uh]],s);
+    this.quad([x1,y0,z0],[x0,y0,z0],[x0,y1,z0],[x1,y1,z0],[0,0,-1],[[0,0],[uw,0],[uw,uh],[0,uh]],s);
+    this.quad([x1,y0,z1],[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[1,0,0],[[0,0],[ud,0],[ud,uh],[0,uh]],s);
+    this.quad([x0,y0,z0],[x0,y0,z1],[x0,y1,z1],[x0,y1,z0],[-1,0,0],[[0,0],[ud,0],[ud,uh],[0,uh]],s);
+    this.quad([x0,y1,z1],[x1,y1,z1],[x1,y1,z0],[x0,y1,z0],[0,1,0],[[0,0],[uw,0],[uw,ud],[0,ud]],s);
+    this.quad([x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1],[0,-1,0],[[0,0],[uw,0],[uw,ud],[0,ud]],s);
+  },
+  flush:function(){
+    if(!this.ic){ this.n=0; return this; }
+    var gl=TS.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER,this.vb);
+    gl.bufferSubData(gl.ARRAY_BUFFER,0,this.fv.subarray(0,this.v*9));
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.ib);
+    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER,0,this.iv.subarray(0,this.ic));
+    this.n=this.ic;
+    return this;
+  }
+};
+TS._UVQ=[[0,0],[1,0],[1,1],[0,1]];
 TS.drawMesh = function(mesh, tex, model, tint, unlit, emit){
   var gl=TS.gl, P=TS.P.world;
   gl.useProgram(P.p);
@@ -781,10 +853,16 @@ TS.drawMesh = function(mesh, tex, model, tint, unlit, emit){
 <script>
 /* ===== FX: particles, decals, casings, tracers ===== */
 TS.partMax = 420;
+TS.partPool=[];
 TS.spawnPart = function(x,y,z,vx,vy,vz,life,size,r,g,b,a,grav,drag,add){
-  var P=TS.parts;
-  if(P.length>=TS.partMax) P.shift();
-  P.push({x:x,y:y,z:z,vx:vx,vy:vy,vz:vz,life:life,t:0,size:size,r:r,g:g,b:b,a:a,grav:grav||0,drag:drag||0,add:add?1:0});
+  var P=TS.parts, p;
+  if(P.length>=TS.partMax) p=P.shift();          /* recycle evicted */
+  else if(TS.partPool.length) p=TS.partPool.pop(); /* reuse freed */
+  else p={};
+  p.x=x; p.y=y; p.z=z; p.vx=vx; p.vy=vy; p.vz=vz;
+  p.life=life; p.t=0; p.size=size; p.r=r; p.g=g; p.b=b; p.a=a;
+  p.grav=grav||0; p.drag=drag||0; p.add=add?1:0;
+  P.push(p);
 };
 TS.burst = function(x,y,z,n,opt){ // quick particle burst
   opt=opt||{};
@@ -880,7 +958,7 @@ TS.updateFX = function(dt){
   var P=TS.parts;
   for(var i=P.length-1;i>=0;i--){
     var p=P[i]; p.t+=dt;
-    if(p.t>=p.life){ P.splice(i,1); continue; }
+    if(p.t>=p.life){ P[i]=P[P.length-1]; P.pop(); TS.partPool.push(p); continue; }
     p.vy+=p.grav*dt;
     var dr=1/(1+p.drag*dt);
     p.vx*=dr; p.vy*=dr; p.vz*=dr;
@@ -1430,19 +1508,29 @@ TS.alertBots=function(pos,r){
     if(d<r) a.alerted=true;
   });
 };
-/* choose target for bot */
+/* choose target for bot — zero-alloc scan, capped at 70m */
 TS.botTarget=function(a){
-  var best=null,bd=1e9;
-  var cands=[];
-  if(TS.player&&TS.player.alive&&TS.player.team!==a.team) cands.push(TS.player);
-  TS.actors.forEach(function(o){ if(o.alive&&o!==a&&o.team!==a.team&&o.isBot) cands.push(o); });
-  cands.forEach(function(c){
-    var d=dist2(a.pos[0],a.pos[2],c.pos[0],c.pos[2]);
-    var seen=TS.losClear(a.pos[0],a.pos[1]+1.4,a.pos[2],c.pos[0],c.pos[1]+1.1,c.pos[2]);
-    var score=d*(seen?1:2.2);
+  var best=null,bd=1e9,i,o,d,seen,score;
+  var p=TS.player;
+  if(p&&p.alive&&p.team!==a.team){
+    d=dist2(a.pos[0],a.pos[2],p.pos[0],p.pos[2]);
+    if(d<70){
+      seen=TS.losClear(a.pos[0],a.pos[1]+1.4,a.pos[2],p.pos[0],p.pos[1]+1.1,p.pos[2]);
+      score=d*(seen?1:2.2);
+      if(a.type==='marks'&&seen) score*=0.5;
+      if(score<bd){ bd=score; best=p; }
+    }
+  }
+  for(i=0;i<TS.actors.length;i++){
+    o=TS.actors[i];
+    if(!o.alive||o===a||o.team===a.team||!o.isBot) continue;
+    d=dist2(a.pos[0],a.pos[2],o.pos[0],o.pos[2]);
+    if(d>=70) continue;
+    seen=TS.losClear(a.pos[0],a.pos[1]+1.4,a.pos[2],o.pos[0],o.pos[1]+1.1,o.pos[2]);
+    score=d*(seen?1:2.2);
     if(a.type==='marks'&&seen) score*=0.5;
-    if(score<bd){ bd=score; best=c; }
-  });
+    if(score<bd){ bd=score; best=o; }
+  }
   return best;
 };
 TS.updateBot = function(a,dt){
@@ -1452,8 +1540,12 @@ TS.updateBot = function(a,dt){
   a.hitT=M.max(0,a.hitT-dt);
   a.stateT+=dt;
   var T=TS.BOT_TYPES[a.type];
-  var tgt=TS.botTarget(a);
-  var dP=TS.player?dist2(a.pos[0],a.pos[2],TS.player.pos[0],TS.pos2z(TS.player)):1e9;
+  /* retarget at 4Hz (was: full candidate scan + LOS raycasts EVERY frame) */
+  if(!a.tgtRef||!a.tgtRef.alive||TS.time-(a.retargetT||0)>0.25){
+    a.retargetT=TS.time;
+    a.tgtRef=TS.botTarget(a);
+  }
+  var tgt=a.tgtRef;
   /* face target / movement goal */
   var mvx=0,mvz=0,spd=a.spd;
   if(tgt){
@@ -2081,52 +2173,60 @@ TS.el=function(id){ return document.getElementById(id); };
 TS.updateHud=function(){
   var p=TS.player; if(!p) return;
   var W=TS.W[p.cur], g=p.guns[p.cur];
-  TS.el('hpnum').textContent=M.max(0,M.round(p.hp))+(p.armor>0?' +'+M.round(p.armor):'');
-  TS.el('hpfill').style.width=clamp(p.hp,0,100)+'%';
-  TS.el('arfill').style.width=clamp(p.armor,0,100)+'%';
-  TS.el('hpfill').style.background=p.hp<35?'linear-gradient(90deg,#d43e2e,#e86a4a)':'linear-gradient(90deg,#67d449,#8fe05c)';
-  if(W.cat==='mel'){ TS.el('ammo').innerHTML='—'; TS.el('wmode').textContent='MELEE'; }
+  /* DOM writes only when the value actually changed (was: full rebuild every 3 frames) */
+  var C=TS._hc||(TS._hc={});
+  function H(id,txt){ if(C[id]!==txt){ C[id]=txt; TS.el(id).textContent=txt; } }
+  function HI(id,html){ if(C[id]!==html){ C[id]=html; TS.el(id).innerHTML=html; } }
+  H('hpnum',M.max(0,M.round(p.hp))+(p.armor>0?' +'+M.round(p.armor):''));
+  var wHp=clamp(M.round(p.hp),0,100)+'%';
+  if(C.hpw!==wHp){ C.hpw=wHp; TS.el('hpfill').style.width=wHp; }
+  var wAr=clamp(M.round(p.armor),0,100)+'%';
+  if(C.arw!==wAr){ C.arw=wAr; TS.el('arfill').style.width=wAr; }
+  var hpBg=p.hp<35?'linear-gradient(90deg,#d43e2e,#e86a4a)':'linear-gradient(90deg,#67d449,#8fe05c)';
+  if(C.hpbg!==hpBg){ C.hpbg=hpBg; TS.el('hpfill').style.background=hpBg; }
+  if(W.cat==='mel'){ HI('ammo','—'); H('wmode','MELEE'); }
   else{
-    TS.el('ammo').innerHTML=(TS.reloading>0?'<small>در حال پرکردن…</small>':'<b>'+g.ammo+'</b> <small>/ '+g.res+'</small>');
-    TS.el('wmode').textContent=W.auto?'AUTO':'SEMI';
+    HI('ammo',(TS.reloading>0?'<small>در حال پرکردن…</small>':'<b>'+g.ammo+'</b> <small>/ '+g.res+'</small>'));
+    H('wmode',W.auto?'AUTO':'SEMI');
   }
-  TS.el('wname').textContent=W.n;
-  TS.el('gren').textContent='نانجا ×'+p.nades;
+  H('wname',W.n);
+  H('gren','نانجا ×'+p.nades);
   /* objective */
-  var ob=TS.el('objTxt');
-  if(TS.mode==='tdm') ob.innerHTML='<b>'+TS.score.a+'</b> — '+TS.score.b;
-  else if(TS.mode==='waves') ob.innerHTML='موج <b>'+TS.wave+'</b> · '+(TS.actors.filter(function(a){return a.isBot&&a.team===1&&a.alive;}).length)+' دشمن';
-  else if(TS.mode==='gun') ob.innerHTML='سلاح <b>'+(TS.ggIndex+1)+'/11</b>';
-  else ob.innerHTML='<b>'+TS.player.kills+'</b> هدف';
+  var ob;
+  if(TS.mode==='tdm') ob='<b>'+TS.score.a+'</b> — '+TS.score.b;
+  else if(TS.mode==='waves'){
+    var ec=0; for(var i=0;i<TS.actors.length;i++){ var aa=TS.actors[i]; if(aa.isBot&&aa.team===1&&aa.alive) ec++; }
+    ob='موج <b>'+TS.wave+'</b> · '+ec+' دشمن';
+  }
+  else if(TS.mode==='gun') ob='سلاح <b>'+(TS.ggIndex+1)+'/11</b>';
+  else ob='<b>'+TS.player.kills+'</b> هدف';
+  HI('objTxt',ob);
   /* timer */
-  var t=TS.el('timer');
-  if(TS.mode==='waves') t.textContent='';
+  if(TS.mode==='waves') H('timer','');
   else{
     var rem=M.max(0,TS.matchEnd-TS.time);
-    t.textContent=M.floor(rem/60)+':'+('0'+M.floor(rem%60)).slice(-2);
+    H('timer',M.floor(rem/60)+':'+('0'+M.floor(rem%60)).slice(-2));
   }
   /* killstreak buttons */
-  TS.el('ks3').classList.toggle('ready',TS.ksReady[0]);
-  TS.el('ks5').classList.toggle('ready',TS.ksReady[1]);
-  TS.el('ks8').classList.toggle('ready',TS.ksReady[2]);
+  if(C.ks0!==TS.ksReady[0]){ C.ks0=TS.ksReady[0]; TS.el('ks3').classList.toggle('ready',TS.ksReady[0]); }
+  if(C.ks1!==TS.ksReady[1]){ C.ks1=TS.ksReady[1]; TS.el('ks5').classList.toggle('ready',TS.ksReady[1]); }
+  if(C.ks2!==TS.ksReady[2]){ C.ks2=TS.ksReady[2]; TS.el('ks8').classList.toggle('ready',TS.ksReady[2]); }
   /* wave banner */
   var wt=TS.el('waveTxt');
   if(TS.mode==='waves'&&TS.waveState==='inter'){
-    wt.style.display='block';
-    wt.textContent='موج بعدی در '+M.ceil(TS.waveTimer)+' ثانیه';
-  } else wt.style.display='none';
-  /* crosshair */
+    var wtxt='موج بعدی در '+M.ceil(TS.waveTimer)+' ثانیه';
+    if(C.wv!==wtxt){ C.wv=wtxt; wt.textContent=wtxt; }
+    if(C.wvOn!==1){ C.wvOn=1; wt.style.display='block'; }
+  } else if(C.wvOn!==0){ C.wvOn=0; wt.style.display='none'; }
+  /* crosshair (4 direct children — no querySelectorAll) */
   var xh=TS.el('xhair');
-  var spread=6+p.bloom*10+p.speed2d*1.6;
-  xh.style.opacity=p.ads>0.7&&W.scope?'0':'1';
-  xh.querySelectorAll('i').forEach(function(el){
-    if(el.className==='dot') return;
-    el.style.transform='';
-  });
-  xh.children[0].style.left=(20-spread*0.5)+'px';
-  xh.children[1].style.right=(20-spread*0.5)+'px';
-  xh.children[2].style.top=(20-spread*0.5)+'px';
-  xh.children[3].style.bottom=(20-spread*0.5)+'px';
+  var spread=(6+p.bloom*10+p.speed2d*1.6)*0.5;
+  var op=(p.ads>0.7&&W.scope)?'0':'1';
+  if(C.xop!==op){ C.xop=op; xh.style.opacity=op; }
+  xh.children[0].style.left=(20-spread)+'px';
+  xh.children[1].style.right=(20-spread)+'px';
+  xh.children[2].style.top=(20-spread)+'px';
+  xh.children[3].style.bottom=(20-spread)+'px';
 };
 TS.minimapPing=function(x,z){ TS.pings.push({x:x,z:z,t:0}); };
 TS.pings=[];
@@ -2540,9 +2640,9 @@ TS.setupSettings=function(){
 TS.applyQuality=function(){
   var q=TS.settings.qual;
   TS.quality=q;
-  if(q===2){ TS.rscale=1; TS.partMax=520; TS.decalMax=64; }
-  else if(q===0){ TS.rscale=0.6; TS.partMax=180; TS.decalMax=30; }
-  else TS.rscale=0.85; /* auto adjusts in loop */
+  if(q===2){ TS.rscale=1; TS.partMax=520; TS.decalMax=64; TS.cloudOn=1; }
+  else if(q===0){ TS.rscale=0.6; TS.partMax=180; TS.decalMax=30; TS.cloudOn=0; }
+  else { TS.rscale=0.85; TS.cloudOn=1; } /* auto adjusts in loop */
   TS.resize();
 };
 /* weapon wheel */
@@ -2615,43 +2715,70 @@ window.TS_onBack=function(){
 window.TS_onPause=function(){
   try{ if(TS.gstate==='live') TS.pauseGame(); TS.audio.stopAll(); }catch(e){}
 };
-/* demo autopilot for video recording */
+/* demo autopilot for video recording — waypoint navigation + aim at nearest enemy */
 TS.demoUpdate=function(dt){
   if(!TS.demo||!TS.player||!TS.player.alive) return;
   TS.demoT+=dt;
   var p=TS.player;
-  /* find nearest visible enemy */
+  /* nearest enemy (any distance) */
   var best=null,bd=1e9;
   TS.actors.forEach(function(a){
     if(!a.alive||a.team===p.team) return;
     var d=dist2(p.pos[0],p.pos[2],a.pos[0],a.pos[2]);
-    var seen=TS.losClear(p.pos[0],TS.getEyeY(),p.pos[2],a.pos[0],a.pos[1]+1.2,a.pos[2]);
-    if(seen&&d<bd){ bd=d; best=a; }
+    if(d<bd){ bd=d; best=a; }
   });
+  var eyeY=TS.getEyeY();
   if(best){
     var dx=best.pos[0]-p.pos[0], dz=best.pos[2]-p.pos[2];
     var d=M.sqrt(dx*dx+dz*dz);
+    var seen=TS.losClear(p.pos[0],eyeY,p.pos[2],best.pos[0],best.pos[1]+1.2,best.pos[2]);
     var wantYaw=M.atan2(dx,-dz);
-    var dy=(best.pos[1]+1.15)-TS.getEyeY();
+    p.yaw+=angNorm(wantYaw-p.yaw)*M.min(1,dt*6);
+    var dy=(best.pos[1]+1.15)-eyeY;
     var wantPitch=M.atan2(dy,d);
-    p.yaw+=angNorm(wantYaw-p.yaw)*M.min(1,dt*7);
-    p.pitch=lerp(p.pitch,wantPitch,M.min(1,dt*7));
-    /* shoot in bursts */
+    p.pitch=lerp(p.pitch,wantPitch,M.min(1,dt*6));
     var W=TS.W[p.cur];
-    TS.input.fire= M.sin(TS.time*2.2)>-0.3;
-    if(!W.auto&&TS.input.fire){ TS.input.firePressed=true; TS.input.fire=false; }
-    /* keep mid distance */
-    if(d>20){ TS.input.mx=0; TS.input.my=0.8; }
-    else if(d<9){ TS.input.mx=0; TS.input.my=-0.6; }
-    else { TS.input.mx=M.sin(TS.time*0.7)*0.7; TS.input.my=0; }
+    if(seen){
+      TS.input.fire=M.sin(TS.time*2.2)>-0.3;
+      if(!W.auto&&TS.input.fire){ TS.input.firePressed=true; TS.input.fire=false; }
+    } else {
+      TS.input.fire=false;
+    }
+    /* navigate via waypoints toward enemy */
+    if(!seen||d>22){
+      var my=TS.nearestWp(p.pos[0],p.pos[2]);
+      var tw=TS.nearestWp(best.pos[0],best.pos[2]);
+      var nxt=TS.wpPath(my,tw);
+      var wp=TS.wp[nxt];
+      var wx=wp[0]-p.pos[0], wz=wp[1]-p.pos[2];
+      var wl=M.sqrt(wx*wx+wz*wz)||1;
+      /* face travel direction when walking (looks natural) */
+      var wantYawW=M.atan2(wx,-wz);
+      p.yaw+=angNorm(wantYawW-p.yaw)*M.min(1,dt*4);
+      TS.input.mx=0; TS.input.my=1;
+      /* actual-displacement stuck detection */
+      if(!p._lastPos) p._lastPos=[p.pos[0],p.pos[2]];
+      var moved=M.sqrt((p.pos[0]-p._lastPos[0])*(p.pos[0]-p._lastPos[0])+(p.pos[2]-p._lastPos[2])*(p.pos[2]-p._lastPos[2]));
+      p._lastPos=[p.pos[0],p.pos[2]];
+      p._stuckT=(moved<0.02)?(p._stuckT||0)+dt:0;
+      if(p._stuckT>1.2){
+        /* sidestep first, then teleport to waypoint if hopeless */
+        if(p._stuckT<2.2){ TS.input.mx=M.sin(TS.time*3)>0?1:-1; p.yaw+=dt*1.5; }
+        else{ p.pos[0]=wp[0]; p.pos[2]=wp[1]; p._stuckT=0; }
+      }
+    } else if(seen){
+      /* strafe at combat distance */
+      TS.input.mx=M.sin(TS.time*0.8)*0.7;
+      TS.input.my=d>18?0.7:(d<8?-0.5:0);
+      p._stuckT=0;
+    }
   } else {
     TS.input.fire=false;
-    TS.input.mx=M.sin(TS.time*0.4)*0.6;
-    TS.input.my=0.6;
-    p.yaw+=dt*0.3;
+    TS.input.mx=M.sin(TS.time*0.4)*0.5;
+    TS.input.my=0.5;
   }
   /* occasional ADS */
-  TS.input.ads=(TS.time%8)>5.2;
+  TS.input.ads=(TS.time%8)>5.4;
   /* auto reload */
   var g=p.guns[p.cur];
   if(g&&g.ammo===0) TS.startReload();
@@ -2705,6 +2832,7 @@ TS.drawSky=function(cam){
   gl.uniform1f(P.u.uTanF,M.tan(cam.fov/2));
   gl.uniform1f(P.u.uAsp,TS.cw/TS.ch);
   gl.uniform1f(P.u.uTime,TS.time);
+  gl.uniform1f(P.u.uCloud,TS.cloudOn);
   gl.bindBuffer(gl.ARRAY_BUFFER,TS.skyBuf);
   gl.enableVertexAttribArray(0);
   gl.disableVertexAttribArray(1); gl.disableVertexAttribArray(2); gl.disableVertexAttribArray(3);
@@ -2714,17 +2842,21 @@ TS.drawSky=function(cam){
 };
 TS.tempM=null;
 TS.actorModel=function(x,y,z,yaw){ 
-  var a=M4.mul(M4.trans(x,y,z),M4.rotY(yaw));
-  return a;
+  return M4.mul(M4.trans(x,y,z,M4.tmp()),M4.rotY(yaw,M4.tmp()),M4.tmp());
 };
 TS.drawBots=function(cam){
   var gl=TS.gl, bm=TS.botMeshes;
-  var plate=TS.texMake('plate');
-  for(var i=0;i<TS.actors.length;i++){
+  if(!bm) return;
+  var plate=TS.texMake('plate'), shTex=TS.texMake('shadow');
+  /* cull dead corpses past lifetime FIRST (reverse-safe) */
+  for(var i=TS.actors.length-1;i>=0;i--){
+    var aa=TS.actors[i];
+    if(aa!==TS.player&&!aa.alive&&aa.deadT>6) TS.actors.splice(i,1);
+  }
+  /* pass 1: bodies (opaque) */
+  for(i=0;i<TS.actors.length;i++){
     var a=TS.actors[i];
     if(a===TS.player) continue;
-    if(!a.alive&&a.deadT>6){ TS.actors.splice(i,1); i--; continue; }
-    if(!TS.botMeshes) break;
     var dead=!a.alive;
     var sink=dead?M.max(0,a.deadT-4)*0.4:0;
     var fallAng=dead?M.min(PI/2,a.deadT*3.4):0;
@@ -2733,36 +2865,38 @@ TS.drawBots=function(cam){
     else tint=a.type==='heavy'?[0.75,0.4,0.25]:[0.85,0.3,0.22];
     if(a.hitT>0) tint=[1.6,1.2,1.2];
     if(dead) tint=[0.45,0.4,0.4,a.deadT>4?M.max(0,1-(a.deadT-4)/2):1];
-    var base=TS.actorModel(a.pos[0],-sink,a.pos[2],a.yaw);
-    var rotFall=M4.mul(base,M4.rotX(-fallAng));
-    var R=rotFall;
+    var base=M4.mul(M4.trans(a.pos[0],-sink,a.pos[2],M4.tmp()),M4.rotY(a.yaw,M4.tmp()),M4.tmp());
+    var R=M4.mul(base,M4.rotX(-fallAng,M4.tmp()),M4.tmp());
     /* torso */
-    TS.drawMesh(bm.body,plate,M4.mul(R,M4.trans(0,1.08,0)),tint);
+    TS.drawMesh(bm.body,plate,M4.mul(R,M4.trans(0,1.08,0,M4.tmp()),M4.tmp()),tint);
     /* head */
-    TS.drawMesh(bm.head,plate,M4.mul(R,M4.trans(0,1.56,0)),[tint[0]*1.25,tint[1]*1.25,tint[2]*1.25,tint[3]]);
+    TS.drawMesh(bm.head,plate,M4.mul(R,M4.trans(0,1.56,0,M4.tmp()),M4.tmp()),[tint[0]*1.25,tint[1]*1.25,tint[2]*1.25,tint[3]]);
     /* legs with walk swing */
     var sw=a.alive?M.sin(a.walkPh)*0.55:0;
-    var legL=M4.mul(R,M4.trans(-0.13,0.66,0)); legL=M4.mul(legL,M4.rotX(sw)); legL=M4.mul(legL,M4.trans(0,-0.31,0));
-    TS.drawMesh(bm.leg,plate,legL,tint);
-    var legR=M4.mul(R,M4.trans(0.13,0.66,0)); legR=M4.mul(legR,M4.rotX(-sw)); legR=M4.mul(legR,M4.trans(0,-0.31,0));
-    TS.drawMesh(bm.leg,plate,legR,tint);
+    var t1=M4.mul(R,M4.trans(-0.13,0.66,0,M4.tmp()),M4.tmp());
+    t1=M4.mul(t1,M4.rotX(sw,M4.tmp()),M4.tmp()); t1=M4.mul(t1,M4.trans(0,-0.31,0,M4.tmp()),M4.tmp());
+    TS.drawMesh(bm.leg,plate,t1,tint);
+    var t2=M4.mul(R,M4.trans(0.13,0.66,0,M4.tmp()),M4.tmp());
+    t2=M4.mul(t2,M4.rotX(-sw,M4.tmp()),M4.tmp()); t2=M4.mul(t2,M4.trans(0,-0.31,0,M4.tmp()),M4.tmp());
+    TS.drawMesh(bm.leg,plate,t2,tint);
     /* arms holding gun forward */
-    var armL=M4.mul(R,M4.trans(-0.34,1.22,-0.1)); armL=M4.mul(armL,M4.rotX(-1.15));
-    TS.drawMesh(bm.arm,plate,armL,tint);
-    var armR=M4.mul(R,M4.trans(0.34,1.22,-0.1)); armR=M4.mul(armR,M4.rotX(-1.15));
-    TS.drawMesh(bm.arm,plate,armR,tint);
+    var aL=M4.mul(R,M4.trans(-0.34,1.22,-0.1,M4.tmp()),M4.tmp()); aL=M4.mul(aL,M4.rotX(-1.15,M4.tmp()),M4.tmp());
+    TS.drawMesh(bm.arm,plate,aL,tint);
+    var aR=M4.mul(R,M4.trans(0.34,1.22,-0.1,M4.tmp()),M4.tmp()); aR=M4.mul(aR,M4.rotX(-1.15,M4.tmp()),M4.tmp());
+    TS.drawMesh(bm.arm,plate,aR,tint);
     /* gun */
     var aimP=a.aimPitch||0;
-    var gunM=M4.mul(R,M4.trans(0.1,1.28,-0.42)); gunM=M4.mul(gunM,M4.rotX(aimP));
+    var gunM=M4.mul(R,M4.trans(0.1,1.28,-0.42,M4.tmp()),M4.tmp()); gunM=M4.mul(gunM,M4.rotX(aimP,M4.tmp()),M4.tmp());
     TS.drawMesh(bm.gun,plate,gunM,[0.16,0.16,0.18,tint[3]==null?1:tint[3]]);
-    /* blob shadow */
-    if(!dead){
-      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
-      var sh=M4.mul(M4.trans(a.pos[0],0.02,a.pos[2]),M4.rotY(a.yaw));
-      TS.drawMesh(bm.blob,TS.texMake('shadow'),sh,[0,0,0,0.5]);
-      gl.depthMask(true); gl.disable(gl.BLEND);
-    }
   }
+  /* pass 2: blob shadows (single blend state block) */
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+  for(i=0;i<TS.actors.length;i++){
+    a=TS.actors[i];
+    if(a===TS.player||!a.alive) continue;
+    TS.drawMesh(bm.blob,shTex,M4.mul(M4.trans(a.pos[0],0.02,a.pos[2],M4.tmp()),M4.rotY(a.yaw,M4.tmp()),M4.tmp()),[0,0,0,0.5]);
+  }
+  gl.depthMask(true); gl.disable(gl.BLEND);
 };
 TS.drawWorldAndProps=function(cam){
   var gl=TS.gl;
@@ -2777,46 +2911,40 @@ TS.drawWorldAndProps=function(cam){
       TS.drawMesh(TS.targetMesh,TS.targetMesh.tex,TS.actorModel(t.x,0,t.z,M.atan2(-t.x,-t.z)),TS.TINT1);
     });
   }
-  /* grenades + casings batched */
-  var dyn=new TS.MeshBuilder();
-  TS.nades.forEach(function(n){
-    dyn.box(n.x,n.y+0.06,n.z,0.12,0.14,0.12,1,1);
-  });
-  TS.casings.forEach(function(c){
-    dyn.box(c.x,c.y,c.z,0.025,0.025,0.055,0.9,1);
-  });
-  if(dyn.v){
-    var n=dyn.idx.length, m=dyn.upload(); m.n=n;
-    TS.drawMesh(m,TS.texMake('plate'),TS.IDENT,TS.TINT1);
-  }
+  /* grenades + casings: persistent DynMesh — zero per-frame allocation */
+  if(!TS.dynProps) TS.dynProps=new TS.DynMesh(1024,1536);
+  var dyn=TS.dynProps; dyn.reset();
+  TS.nades.forEach(function(n){ dyn.box(n.x,n.y+0.06,n.z,0.12,0.14,0.12,1,1); });
+  TS.casings.forEach(function(c){ dyn.box(c.x,c.y,c.z,0.025,0.025,0.055,0.9,1); });
+  if(dyn.ic) TS.drawMesh(dyn.flush(),TS.texMake('plate'),TS.IDENT,TS.TINT1);
 };
 TS.drawDecalsAndShadows=function(cam){
   var gl=TS.gl;
+  if(!TS.decals.length) return;
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
   gl.depthMask(false);
-  if(TS.decals.length){
-    var b=new TS.MeshBuilder();
-    TS.decals.forEach(function(d){
-      if(d.t>10) return;
-      var a=d.t>8?1-(d.t-8)/2:1;
-      /* build basis from normal */
-      var n=[d.nx,d.ny,d.nz];
-      var up=M.abs(n[1])>0.9?[1,0,0]:[0,1,0];
-      var tx=[n[1]*up[2]-n[2]*up[1], n[2]*up[0]-n[0]*up[2], n[0]*up[1]-n[1]*up[0]];
-      var ty=[n[1]*tx[2]-n[2]*tx[1], n[2]*tx[0]-n[0]*tx[2], n[0]*tx[1]-n[1]*tx[0]];
-      var s=0.09;
-      var p0=[d.x-tx[0]*s-ty[0]*s,d.y-tx[1]*s-ty[1]*s,d.z-tx[2]*s-ty[2]*s];
-      var p1=[d.x+tx[0]*s-ty[0]*s,d.y+tx[1]*s-ty[1]*s,d.z+tx[2]*s-ty[2]*s];
-      var p2=[d.x+tx[0]*s+ty[0]*s,d.y+tx[1]*s+ty[1]*s,d.z+tx[2]*s+ty[2]*s];
-      var p3=[d.x-tx[0]*s+ty[0]*s,d.y-tx[1]*s+ty[1]*s,d.z-tx[2]*s+ty[2]*s];
-      b.quad(p0,p1,p2,p3,n,[[0,0],[1,0],[1,1],[0,1]],1);
-    });
-    if(b.v){
-      var n2=b.idx.length, m=b.upload(); m.n=n2;
-      gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2,-2);
-      TS.drawMesh(m,TS.texMake('hole'),TS.IDENT,[1,1,1,0.95]);
-      gl.disable(gl.POLYGON_OFFSET_FILL);
-    }
+  /* persistent DynMesh: rebuilt in-place each frame, zero allocation */
+  if(!TS.dynDecals) TS.dynDecals=new TS.DynMesh(512,768);
+  var b=TS.dynDecals; b.reset();
+  TS.decals.forEach(function(d){
+    if(d.t>10) return;
+    var a=d.t>8?1-(d.t-8)/2:1;
+    /* build basis from normal */
+    var n=[d.nx,d.ny,d.nz];
+    var up=M.abs(n[1])>0.9?[1,0,0]:[0,1,0];
+    var tx=[n[1]*up[2]-n[2]*up[1], n[2]*up[0]-n[0]*up[2], n[0]*up[1]-n[1]*up[0]];
+    var ty=[n[1]*tx[2]-n[2]*tx[1], n[2]*tx[0]-n[0]*tx[2], n[0]*tx[1]-n[1]*tx[0]];
+    var s=0.09;
+    var p0=[d.x-tx[0]*s-ty[0]*s,d.y-tx[1]*s-ty[1]*s,d.z-tx[2]*s-ty[2]*s];
+    var p1=[d.x+tx[0]*s-ty[0]*s,d.y+tx[1]*s-ty[1]*s,d.z+tx[2]*s-ty[2]*s];
+    var p2=[d.x+tx[0]*s+ty[0]*s,d.y+tx[1]*s+ty[1]*s,d.z+tx[2]*s+ty[2]*s];
+    var p3=[d.x-tx[0]*s+ty[0]*s,d.y-tx[1]*s+ty[1]*s,d.z-tx[2]*s+ty[2]*s];
+    b.quad(p0,p1,p2,p3,n,[[0,0],[1,0],[1,1],[0,1]],1);
+  });
+  if(b.ic){
+    gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2,-2);
+    TS.drawMesh(b.flush(),TS.texMake('hole'),TS.IDENT,[1,1,1,0.95]);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
   }
   gl.depthMask(true); gl.disable(gl.BLEND);
 };
@@ -2842,19 +2970,23 @@ TS.drawViewmodel=function(cam){
   TS.vmRecoil=M.max(0,TS.vmRecoil-TS.dt*0.9);
   TS.vmRaise=M.max(0,TS.vmRaise-TS.dt);
   TS.vmMelee=TS.vmMelee>0?M.max(0,TS.vmMelee-TS.dt):0;
-  var mm=M4.trans(adsX+bobX+melee*0.12, adsY+bobY-rel*0.22-raise*1.2, adsZ+rec*0.5+melee*-0.25);
-  mm=M4.mul(mm,M4.rotX(rec*1.4+rel*0.9-melee*0.4));
-  mm=M4.mul(mm,M4.rotZ(melee*0.5));
+  var mm=M4.trans(adsX+bobX+melee*0.12, adsY+bobY-rel*0.22-raise*1.2, adsZ+rec*0.5+melee*-0.25,M4.tmp());
+  mm=M4.mul(mm,M4.rotX(rec*1.4+rel*0.9-melee*0.4,M4.tmp()),M4.tmp());
+  mm=M4.mul(mm,M4.rotZ(melee*0.5,M4.tmp()),M4.tmp());
   TS.drawMesh(vm.mesh,vm.mesh.tex,mm,TS.TINT1);
-  /* muzzle flash quad */
+  /* muzzle flash: STATIC prebuilt quad + scale matrix (was: per-frame MeshBuilder) */
   TS.muzzleT=M.max(0,TS.muzzleT-TS.dt);
   if(TS.muzzleT>0){
+    if(!TS.flashMesh){
+      var fb=new TS.MeshBuilder();
+      fb.quad([-1,-0.6+0.015,-0.86],[1,-0.6+0.015,-0.86],[1,0.6+0.015,-0.86],[-1,0.6+0.015,-0.86],[0,0,-1],[[0,0],[1,0],[1,1],[0,1]],1);
+      var fcnt=fb.idx.length;
+      TS.flashMesh=fb.upload(); TS.flashMesh.n=fcnt;
+    }
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE); gl.depthMask(false);
-    var fb=new TS.MeshBuilder();
     var s=0.16+M.random()*0.05;
-    fb.quad([-s,-s*0.6+0.015,-0.86],[s,-s*0.6+0.015,-0.86],[s,s*0.6+0.015,-0.86],[-s,s*0.6+0.015,-0.86],[0,0,-1],[[0,0],[1,0],[1,1],[0,1]],1);
-    var n3=fb.idx.length, fm=fb.upload(); fm.n=n3;
-    TS.drawMesh(fm,TS.texMake('flash'),TS.IDENT,[1,1,1,1],true);
+    var fm=M4.scale(s,s,1,M4.tmp());
+    TS.drawMesh(TS.flashMesh,TS.texMake('flash'),fm,[1,1,1,1],true);
     gl.depthMask(true); gl.disable(gl.BLEND);
   }
 };
@@ -2868,44 +3000,42 @@ TS.drawParticles=function(cam){
   gl.uniform1f(P.u.uSoft,0.12);
   gl.enable(gl.BLEND);
   gl.depthMask(false);
-  /* normal alpha pass */
-  gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
-  var arr=[],n=0;
-  TS.parts.forEach(function(p){ if(!p.add) arr.push(p); });
-  if(arr.length) TS.drawPointArr(arr,false);
-  /* additive pass */
-  gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
-  arr=[];
-  TS.parts.forEach(function(p){ if(p.add) arr.push(p); });
-  if(arr.length) TS.drawPointArr(arr,true);
-  /* tracers as stretched points (several along segment) */
-  if(TS.tracers.length){
-    var tarr=[];
-    TS.tracers.forEach(function(t){
-      var a=1-t.t/0.09;
-      for(var k=0;k<6;k++){
-        var f=k/5;
-        tarr.push({x:lerp(t.x0,t.x1,f),y:lerp(t.y0,t.y1,f),z:lerp(t.z0,t.z1,f),
-          size:9,r:t.col[0],g:t.col[1],b:t.col[2],a:a*0.9});
-      }
-    });
-    if(tarr.length) TS.drawPointArr(tarr,true);
+  /* persistent packed arrays: [x,y,z,r,g,b,a,size] — zero allocation */
+  if(!TS.pdA){ TS.pdA=new Float32Array(1024*8); TS.pdB=new Float32Array(1024*8); }
+  var A=TS.pdA, B=TS.pdB, na=0, nb=0, parts=TS.parts, i, p;
+  for(i=0;i<parts.length;i++){
+    p=parts[i];
+    var D=p.add?B:A, n=p.add?nb:na;
+    if(n>=1024) continue;
+    D[n*8]=p.x; D[n*8+1]=p.y; D[n*8+2]=p.z;
+    D[n*8+3]=p.r; D[n*8+4]=p.g; D[n*8+5]=p.b; D[n*8+6]=p.a; D[n*8+7]=p.size;
+    if(p.add) nb++; else na++;
   }
+  /* tracers: 6 stretched samples written straight into additive array */
+  var T=TS.tracers;
+  for(i=0;i<T.length;i++){
+    var t=T[i], a=1-t.t/0.09;
+    for(var k=0;k<6;k++){
+      if(nb>=1024) break;
+      var f=k/5, o=nb*8;
+      B[o]=lerp(t.x0,t.x1,f); B[o+1]=lerp(t.y0,t.y1,f); B[o+2]=lerp(t.z0,t.z1,f);
+      B[o+3]=t.col[0]; B[o+4]=t.col[1]; B[o+5]=t.col[2]; B[o+6]=a*0.9; B[o+7]=9;
+      nb++;
+    }
+  }
+  gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+  if(na) TS.drawPointArr(A,na);
+  gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+  if(nb) TS.drawPointArr(B,nb);
   gl.depthMask(true);
   gl.disable(gl.BLEND);
 };
-TS.drawPointArr=function(arr,additive){
+TS.drawPointArr=function(data,count){
   var gl=TS.gl;
-  var data=new Float32Array(arr.length*8);
-  for(var i=0;i<arr.length;i++){
-    var p=arr[i];
-    data[i*8]=p.x; data[i*8+1]=p.y; data[i*8+2]=p.z;
-    data[i*8+3]=p.r; data[i*8+4]=p.g; data[i*8+5]=p.b; data[i*8+6]=p.a;
-    data[i*8+7]=p.size;
-  }
-  if(!TS.partBuf) TS.partBuf=gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER,TS.partBuf);
-  gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW);
+  if(!TS._pba){ TS._pba=gl.createBuffer(); TS._pbb=gl.createBuffer(); }
+  var b=data===TS.pdA?TS._pba:TS._pbb;
+  gl.bindBuffer(gl.ARRAY_BUFFER,b);
+  gl.bufferSubData(gl.ARRAY_BUFFER,0,data.subarray(0,count*8));
   gl.enableVertexAttribArray(0);
   gl.enableVertexAttribArray(1);
   gl.enableVertexAttribArray(2);
@@ -2913,7 +3043,7 @@ TS.drawPointArr=function(arr,additive){
   gl.vertexAttribPointer(0,3,gl.FLOAT,false,32,0);
   gl.vertexAttribPointer(1,4,gl.FLOAT,false,32,12);
   gl.vertexAttribPointer(2,1,gl.FLOAT,false,32,28);
-  gl.drawArrays(gl.POINTS,0,arr.length);
+  gl.drawArrays(gl.POINTS,0,count);
 };
 TS.resize=function(){
   var cv=TS.cv;
@@ -2927,10 +3057,10 @@ TS.autoResT=0;
 TS.autoRes=function(dt){
   if(TS.settings.qual!==1) return;
   TS.autoResT+=dt;
-  if(TS.autoResT<2) return;
+  if(TS.autoResT<1.1) return;
   TS.autoResT=0;
-  if(TS.fpsAvg<34&&TS.rscale>0.55){ TS.rscale=M.max(0.55,TS.rscale-0.15); TS.resize(); }
-  else if(TS.fpsAvg>55&&TS.rscale<0.85){ TS.rscale=M.min(0.85,TS.rscale+0.1); TS.resize(); }
+  if(TS.fpsAvg<40&&TS.rscale>0.5){ TS.rscale=M.max(0.5,TS.rscale-0.12); TS.resize(); }
+  else if(TS.fpsAvg>56&&TS.rscale<1.0){ TS.rscale=M.min(1.0,TS.rscale+0.06); TS.resize(); }
 };
 TS.lastT=0;
 TS.loop=function(t){
@@ -2950,7 +3080,8 @@ TS.loop=function(t){
         TS.input.fireProcessed=false;
         if(TS.input.firePressed){ TS.fire(); TS.input.firePressed=false; }
         if(TS.demo) TS.demoUpdate(dt);
-        TS.actors.forEach(function(a){ if(a.isBot) TS.updateBot(a,dt); });
+        var act=TS.actors;
+        for(var j=0;j<act.length;j++){ if(act[j].isBot) TS.updateBot(act[j],dt); }
         TS.updateNades(dt);
         TS.updateStrikes(dt);
         TS.updateFX(dt);
@@ -2978,7 +3109,8 @@ TS.loop=function(t){
         if(TS.frame%3===0||TS.hudDirty){
           TS.updateHud(); TS.hudDirty=false;
         }
-        if(TS.frame%2===0){ TS.drawMinimap(); TS.updateCompass(); }
+        if(TS.frame%3===0) TS.drawMinimap();
+        if(TS.frame%2===0) TS.updateCompass();
       } else { TS.updateFX(dt); }
       TS.render(cam);
       TS.showMedal(); TS.showBanner();
@@ -3051,7 +3183,7 @@ if(TS.demo){
     try{
       TS.pendingMode='waves'; TS.pendingMap='town'; TS.chosenPrim=5;
       TS.startMatch();
-      if(TS.player) TS.player.pos=[-20,0,-20];
+      if(TS.player){ TS.player.pos=[-26,0,26]; TS.player.yaw=Math.atan2(26,-26); }
     }catch(e){ TS_err(e); }
   },2200);
 }
