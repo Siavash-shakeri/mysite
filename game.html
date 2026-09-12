@@ -38,6 +38,8 @@
   #hitm .c { left:4px; bottom:0; transform:rotate(45deg); } #hitm .d { right:4px; bottom:0; transform:rotate(-45deg); }
   #hitm.hs i { background:#ff4646; }
   #vig { position:fixed; inset:0; z-index:9; opacity:0; background:radial-gradient(ellipse at center, transparent 42%, rgba(180,10,10,.55) 100%); }
+  #grade { position:fixed; inset:0; z-index:8; pointer-events:none; background:radial-gradient(ellipse at center, transparent 52%, rgba(5,9,13,.42) 100%); }
+  #grade::after { content:""; position:absolute; inset:0; background:linear-gradient(180deg, rgba(110,165,255,.06), transparent 28%, transparent 72%, rgba(255,150,60,.07)); mix-blend-mode:soft-light; }
   #hplow { position:fixed; inset:0; z-index:9; opacity:0; background:radial-gradient(ellipse at center, transparent 55%, rgba(140,0,0,.5) 100%); animation:lowp 1.1s infinite; }
   @keyframes lowp { 0%,100%{opacity:.15} 50%{opacity:.6} }
   #topbar { position:fixed; top:8px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; background:rgba(8,12,10,.55); border:1px solid rgba(255,255,255,.08); border-radius:10px; padding:5px 14px; backdrop-filter:blur(4px); }
@@ -124,6 +126,7 @@
 </head>
 <body>
 <canvas id="gl"></canvas>
+<div id="grade"></div>
 
 <div id="hud" class="hide">
   <div id="vig"></div><div id="hplow" class="hide"></div>
@@ -427,11 +430,11 @@ TS.initGL = function () {
   var canvas = document.getElementById('gl');
   var r = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: 'high-performance' });
   r.outputEncoding = THREE.sRGBEncoding;
-  r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.08;
+  r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.12;
   r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
   TS.renderer = r; TS.canvas = canvas;
   TS.scene = new THREE.Scene();
-  TS.scene.fog = new THREE.Fog(0xbcc8cf, 40, 165);
+  TS.scene.fog = new THREE.Fog(0xbcc8cf, 55, 190);
   TS.camera = new THREE.PerspectiveCamera(TS.set.fov, 2, 0.08, 500);
   TS.camera.rotation.order = 'YXZ';
   // sky dome
@@ -449,8 +452,17 @@ TS.initGL = function () {
   sun.position.set(35, 55, 20); sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   var sc = sun.shadow.camera; sc.left = -42; sc.right = 42; sc.top = 42; sc.bottom = -42; sc.near = 5; sc.far = 160;
-  sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.03;
+  sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.03; sun.shadow.radius = 4;
   TS.scene.add(sun); TS.scene.add(sun.target); TS.sun = sun;
+  // drifting clouds (cheap billboards, big visual payoff)
+  for (var ci = 0; ci < 6; ci++) {
+    var cmat = new THREE.SpriteMaterial({ map: TS.textures.smokeP, transparent: true, opacity: TS.rand(0.22, 0.34), depthWrite: false, fog: false });
+    var cl = new THREE.Sprite(cmat);
+    var cs = TS.rand(55, 100);
+    cl.scale.set(cs, cs * 0.4, 1);
+    cl.position.set(TS.rand(-170, 170), TS.rand(46, 78), TS.rand(-170, 170));
+    TS.scene.add(cl);
+  }
   TS.applyQuality();
   window.addEventListener('resize', TS.onResize); TS.onResize();
 };
@@ -677,7 +689,7 @@ TS.fx = (function () {
     for (i = 0; i < TMAX; i++) tracers.push({ on: false, life: 0 });
     tGeo = new THREE.BufferGeometry();
     tGeo.setAttribute('position', new THREE.BufferAttribute(tArr, 3));
-    tLines = new THREE.LineSegments(tGeo, new THREE.LineBasicMaterial({ color: 0xffd080, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+    tLines = new THREE.LineSegments(tGeo, new THREE.LineBasicMaterial({ color: 0xffd080, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
     tLines.frustumCulled = false; TS.scene.add(tLines);
     flashLight = new THREE.PointLight(0xffc070, 0, 14, 2); TS.scene.add(flashLight);
   }
@@ -699,7 +711,7 @@ TS.fx = (function () {
     tArr[i * 6 + 3] = bx; tArr[i * 6 + 4] = by; tArr[i * 6 + 5] = bz;
   }
   function muzzle(x, y, z, power) {
-    flashLight.position.set(x, y, z); flashLight.intensity = power || 2.2; flashLight.distance = 13;
+    flashLight.position.set(x, y, z); flashLight.intensity = power || 2.2; flashLight.distance = 16;
   }
   function update(dt) {
     var i, p;
@@ -768,10 +780,10 @@ TS.WEAPONS = [
   { id:9, name:'PYTHON .357',cat:1, dmg:68, rate:1.7, mag:6,  res:24, rel:2.6,  rec:4.2, spr:0.4,  mspr:2.4, range:80,  hs:4,   auto:false, pel:1, zoom:0,  kr:600,  snd:'pistol' }
 ];
 TS.DIFFS = [
-  { react:0.65, spr:3.4, hp:85,  aim:3.2, dmgMul:0.45, burst:[2,4] },
-  { react:0.42, spr:2.5, hp:100, aim:5,   dmgMul:0.55, burst:[3,5] },
-  { react:0.27, spr:1.7, hp:110, aim:7.5, dmgMul:0.65, burst:[4,7] },
-  { react:0.15, spr:1.1, hp:120, aim:10,  dmgMul:0.78, burst:[5,9] }
+  { react:0.85, spr:4.6, hp:55,  aim:2.6, dmgMul:0.30, burst:[2,3] },
+  { react:0.62, spr:3.5, hp:70,  aim:4.2, dmgMul:0.38, burst:[3,4] },
+  { react:0.45, spr:2.5, hp:85,  aim:6.0, dmgMul:0.48, burst:[4,6] },
+  { react:0.30, spr:1.7, hp:100, aim:8.0, dmgMul:0.60, burst:[5,8] }
 ];
 TS.NAMES_T = ['کاوه','آرمان','بردیا','سام','فرهاد','بهرام','مانی','رامین'];
 TS.NAMES_CT = ['آرش','سعید','کوروش','نیما'];
@@ -823,7 +835,7 @@ TS.newActor = function (name, team, isBot) {
     respawnT: 0, spawnProt: 0, walkAnim: 0, stepDist: 0, crouch: false, run: false,
     lastAttacker: -1, lastSeenX: 0, lastSeenZ: 0,
     // bot brain
-    brain: isBot ? { state: 'move', path: [], pathI: 0, thinkT: Math.random() * 0.3, target: -1, reactT: 0, burst: 0, burstT: 0, strafe: 1, strafeT: 0, goalWp: -1, repathT: 0, lastX: 0, lastZ: 0, stuckT: 0, laspe: 0 } : null
+    brain: isBot ? { state: 'move', path: [], pathI: 0, thinkT: Math.random() * 0.3, target: -1, reactT: 0, burst: 0, burstT: 0, strafe: 1, strafeT: 0, goalWp: -1, repathT: 0, lastX: 0, lastZ: 0, stuckT: 0, laspe: 0, aggro: Math.random() } : null
   };
 };
 TS.giveLoadout = function (a, primaryId, tier) {
@@ -893,10 +905,10 @@ TS.banner = function (txt, sub, dur) {
 TS.spawnActor = function (a, team) {
   var sp;
   if (TS.mode === 'waves' && a.team === 0) {
-    var spots = [[0,-18],[14,-18],[-14,-18],[28,-24],[-28,-24],[0,-27],[24,5],[-24,5],[0,-11],[31,-28],[-31,-28]];
+    var spots = [[0,27],[-14,18],[14,18],[0,18],[-28,20],[28,20],[31,-28],[-31,-28],[0,-18],[-14,-18],[14,-18],[28,-24],[-28,-24],[24,5],[-24,5],[33,-20],[-33,-20],[-24,11],[24,11]];
     var tries = 0;
     do { sp = spots[TS.randi(0, spots.length - 1)]; tries++; }
-    while (TS.player && TS.dist2(sp[0], sp[1], TS.player.pos.x, TS.player.pos.z) < 14 && tries < 12);
+    while (TS.player && TS.dist2(sp[0], sp[1], TS.player.pos.x, TS.player.pos.z) < 18 && tries < 16);
   } else {
     var arr = team === 0 ? TS.MAP.spawnsT : TS.MAP.spawnsCT;
     var idx = 0, cnt = 0;
@@ -905,23 +917,46 @@ TS.spawnActor = function (a, team) {
   }
   a.pos.x = sp[0] + TS.rand(-0.8, 0.8); a.pos.z = sp[1] + TS.rand(-0.8, 0.8); a.pos.y = 0;
   a.alive = true; a.hp = a.isBot ? TS.DIFFS[TS.effDiff()].hp : 100;
-  a.armor = a.isBot ? 40 : 50;
+  a.armor = a.isBot ? 15 : 50;
   a.yaw = team === 0 ? Math.PI : 0; a.pitch = 0;
   a.spawnProt = 1.2; a.vel = { x: 0, y: 0, z: 0 };
   if (a.mesh) { a.mesh.visible = true; a.mesh.rotation.z = 0; a.mesh.position.set(a.pos.x, 0, a.pos.z); a.mats.forEach(function (m) { m.opacity = 1; m.transparent = false; }); }
 };
 TS.effDiff = function () {
-  if (TS.mode === 'waves') return TS.clamp(TS.diff + Math.floor((TS.wave.num - 1) / 3), 0, 3);
+  if (TS.mode === 'waves') return TS.clamp(TS.diff + Math.floor((TS.wave.num - 1) / 4), 0, 3);
   return TS.diff;
 };
 
 // ---------------- combat ----------------
+// subtle touch aim-assist: pull single shots up to ~60% toward a nearby visible enemy
+TS.aimAssist = function (ox, oy, oz, yaw, pitch) {
+  var best = null, bestAng = 0.062; // ~3.5deg cone
+  for (var i = 0; i < TS.actors.length; i++) {
+    var a = TS.actors[i];
+    if (!a.alive || a === TS.player || a.team === TS.player.team || a.spawnProt > 0) continue;
+    var vx = a.pos.x - ox, vy = (a.pos.y + 1.08) - oy, vz = a.pos.z - oz;
+    var dd = Math.sqrt(vx * vx + vy * vy + vz * vz);
+    if (dd < 2 || dd > 46) continue;
+    var yawT = Math.atan2(-vx, -vz);
+    var pitchT = Math.atan2(vy, Math.sqrt(vx * vx + vz * vz));
+    var dy = ((yawT - yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    var dp = pitchT - pitch;
+    var ang = Math.sqrt(dy * dy + dp * dp);
+    if (ang < bestAng && TS.losClear({ x: ox, y: oy, z: oz }, { x: a.pos.x, y: a.pos.y + 1.1, z: a.pos.z })) { bestAng = ang; best = { dy: dy * 0.6, dp: dp * 0.6 }; }
+  }
+  return best;
+};
 TS.fireHitscan = function (shooter, ox, oy, oz, yaw, pitch, w, spreadDeg) {
   var pellets = w.pel || 1;
   shooter.shots++;
+  var ay = yaw, ap = pitch;
+  if (shooter === TS.player && pellets === 1 && w.range > 10) {
+    var aa = TS.aimAssist(ox, oy, oz, yaw, pitch);
+    if (aa) { ay = yaw + aa.dy; ap = pitch + aa.dp; }
+  }
   for (var p = 0; p < pellets; p++) {
     var sp = spreadDeg * Math.PI / 180;
-    var ry = yaw + (Math.random() + Math.random() - 1) * sp, rp = pitch + (Math.random() + Math.random() - 1) * sp;
+    var ry = ay + (Math.random() + Math.random() - 1) * sp, rp = ap + (Math.random() + Math.random() - 1) * sp;
     var dx = -Math.sin(ry) * Math.cos(rp), dy = Math.sin(rp), dz = -Math.cos(ry) * Math.cos(rp);
     var wallHit = TS.raycastWalls(ox, oy, oz, dx, dy, dz, w.range);
     var maxD = wallHit ? wallHit.dist : w.range;
@@ -932,12 +967,12 @@ TS.fireHitscan = function (shooter, ox, oy, oz, yaw, pitch, w, spreadDeg) {
       if (a === shooter || !a.alive || (TS.mode !== 'waves' && a.team === shooter.team)) continue;
       if (TS.mode === 'waves' && a.team === shooter.team) continue;
       if (a.spawnProt > 0) continue;
-      // head sphere
+      // head sphere (slightly generous for mobile)
       var hx = a.pos.x, hy = a.pos.y + 1.56, hz = a.pos.z;
-      var t = TS.raySphere(ox, oy, oz, dx, dy, dz, hx, hy, hz, 0.21, bestT);
+      var t = TS.raySphere(ox, oy, oz, dx, dy, dz, hx, hy, hz, 0.26, bestT);
       if (t > 0) { best = a; bestT = t; headshot = true; continue; }
       // body box
-      var bb = { minx: a.pos.x - 0.33, maxx: a.pos.x + 0.33, miny: a.pos.y, maxy: a.pos.y + (a.crouch ? 1.1 : 1.5), minz: a.pos.z - 0.33, maxz: a.pos.z + 0.33 };
+      var bb = { minx: a.pos.x - 0.42, maxx: a.pos.x + 0.42, miny: a.pos.y, maxy: a.pos.y + (a.crouch ? 1.15 : 1.55), minz: a.pos.z - 0.42, maxz: a.pos.z + 0.42 };
       t = TS.rayBox({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, bestT, bb);
       if (t >= 0 && t < bestT) { best = a; bestT = t; headshot = false; }
     }
@@ -1140,11 +1175,15 @@ TS.updateBot = function (a, dt) {
     speed = 4.2;
     var goal = null;
     if (TS.mode === 'waves' && a.team === 0 && TS.player.alive) {
-      if (TS.dist2(a.pos.x, a.pos.z, TS.player.pos.x, TS.player.pos.z) > 7) goal = { x: TS.player.pos.x, z: TS.player.pos.z };
-    } else if (TS.mode === 'defuse' && a.team === 0 && TS.bomb.state === 1 && a === TS.bombCarrier) {
+      var pdp = TS.dist2(a.pos.x, a.pos.z, TS.player.pos.x, TS.player.pos.z);
+      // only aggressive bots push the player; others patrol -> enemies spread over the map
+      if (pdp > 6 && (br.aggro > 0.45 || pdp < 18)) goal = { x: TS.player.pos.x, z: TS.player.pos.z };
+    }
+    if (!goal && TS.mode === 'defuse' && a.team === 0 && TS.bomb.state === 1 && a === TS.bombCarrier) {
       var site = TS.bomb.site === 'A' ? TS.MAP.siteA : TS.MAP.siteB;
       goal = { x: (site.minx + site.maxx) / 2, z: (site.minz + site.maxz) / 2 };
-    } else {
+    }
+    if (!goal) {
       if (br.goalWp === -1 || (TS.dist2(a.pos.x, a.pos.z, TS.MAP.wps[br.goalWp][0], TS.MAP.wps[br.goalWp][1]) < 2.5)) {
         // advance: bias toward enemy half of the map (TDM) so teams meet
         var enemyHalf = [];
@@ -1284,6 +1323,11 @@ TS.buildViewmodel = function () {
   var mag = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.16, 0.07), dark2); mag.position.set(0, -0.1, -0.06); g.add(mag);
   var stock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.16), acc); stock.position.set(0, -0.01, 0.18); g.add(stock);
   var sight = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.03, 0.012), dark2); sight.position.set(0, 0.052, -0.28); g.add(sight);
+  var rail = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.016, 0.3), dark2); rail.position.set(0, 0.06, -0.14); g.add(rail);
+  var grip = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.095, 0.048), dark2); grip.position.set(0, -0.078, -0.2); grip.rotation.x = 0.28; g.add(grip);
+  var pump = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.1), acc); pump.position.set(0, -0.028, -0.32); g.add(pump);
+  var fl = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), new THREE.MeshBasicMaterial({ map: TS.textures.glow, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+  fl.position.set(0, 0.008, -0.54); fl.visible = false; g.add(fl); TS.vmFlash = fl;
   g.traverse(function (m) { if (m.isMesh) { m.castShadow = false; m.renderOrder = 10; } });
   g.position.set(0.22, -0.2, -0.45);
   TS.vm = g; TS.camera.add(g);
@@ -1303,6 +1347,12 @@ TS.updateViewmodel = function (dt) {
   TS.vm.position.z = tz + (TS.viewKick || 0) * 0.06;
   TS.vm.rotation.x = (TS.reloadAnim || 0) * -0.9 + (TS.viewKick || 0) * 0.35;
   TS.viewKick = Math.max(0, TS.viewKick - dt * 6);
+  // muzzle flash sprite
+  if (TS.vmFlash) {
+    TS.vmFlashT = Math.max(0, (TS.vmFlashT || 0) - dt);
+    TS.vmFlash.visible = TS.vmFlashT > 0;
+    if (TS.vmFlash.visible) { TS.vmFlash.rotation.z += dt * 42; var fs = 0.7 + TS.vmFlashT * 9; TS.vmFlash.scale.set(fs, fs, 1); }
+  }
 };
 
 // ---------------- main update ----------------
@@ -1320,7 +1370,7 @@ TS.update = function (dt) {
     if (mag > 1) { inp.mx /= mag; inp.mz /= mag; }
     // camera-relative
     var sy = Math.sin(p.yaw), cy = Math.cos(p.yaw);
-    var wx = (inp.mx * cy - inp.mz * sy), wz = (-inp.mx * sy - inp.mz * cy);
+    var wx = (inp.mx * cy + inp.mz * sy), wz = (-inp.mx * sy + inp.mz * cy);
     TS.moveActor(p.pos, wx * sp * dt, wz * sp * dt, 0.34);
     // gravity/jump
     p.vel.y -= 15.5 * dt;
@@ -1375,21 +1425,22 @@ TS.update = function (dt) {
         } else {
           p.fireCd = 1 / w.rate;
           p.mag[w.id]--;
-          var spread = (w.spr + p.bloom * 1.6 + (p.run ? w.mspr : (mag > 0.1 ? w.mspr * 0.45 : 0)) + (p.crouch ? -0.35 : 0)) * (inp.ads ? 0.35 : 1);
+          var spread = (w.spr + p.bloom * 1.6 + (p.run ? w.mspr : (mag > 0.1 ? w.mspr * 0.45 : 0)) + (p.crouch ? -0.35 : 0)) * (inp.ads ? 0.3 : 1);
           spread = Math.max(0.03, spread);
           var ey = p.pos.y + TS.eyeY(p);
           var kx = -Math.sin(p.yaw), kz = -Math.cos(p.yaw);
           TS.audio.shot(w.snd, null);
           TS.fx.muzzle(p.pos.x + kx * 0.6, ey - 0.12, p.pos.z + kz * 0.6, 2.4);
           TS.fireHitscan(p, p.pos.x, ey, p.pos.z, p.yaw + (TS.shake > 0.3 ? TS.rand(-0.01, 0.01) : 0), p.pitch, w, spread);
-          p.bloom = Math.min(2.2, p.bloom + (w.auto ? 0.28 : 0.9));
+          p.bloom = Math.min(2.2, p.bloom + (w.auto ? 0.22 : 0.75));
+          TS.vmFlashT = 0.045;
           TS.viewKick = Math.min(1, (TS.viewKick || 0) + 0.55);
           p.recP += w.rec * 0.006; TS.shake = Math.min(1, TS.shake + w.rec * 0.02);
           TS.updateAmmoHud();
         }
       }
       inp.firePressed = false;
-      p.bloom = Math.max(0, p.bloom - dt * 2.4);
+      p.bloom = Math.max(0, p.bloom - dt * 3.4);
     }
     if (inp.nade) { inp.nade = false; TS.throwNade(p); TS.updateAmmoHud(); }
   } else {
@@ -1443,7 +1494,7 @@ TS.updateModes = function (dt) {
       var realAlive = 0;
       TS.actors.forEach(function (a) { if (a.isBot && a.team === 0 && a.alive) realAlive++; });
       wv.alive = realAlive;
-      if (wv.pending <= 0 && realAlive <= 0) { wv.state = 2; wv.timer = 9; TS.banner('موج ' + wv.num + ' پاک‌سازی شد!', '+۲۵ سلامتی و مهمات کامل', 3); if (p.alive) { p.hp = Math.min(100, p.hp + 25); var pw = TS.WEAPONS[p.primary]; p.res[pw.id] = TS.WEAPONS[p.primary].res; p.res[1] = 60; p.nades = Math.min(3, p.nades + 1); TS.updateAmmoHud(); } }
+      if (wv.pending <= 0 && realAlive <= 0) { wv.state = 2; wv.timer = 9; TS.banner('موج ' + wv.num + ' پاک‌سازی شد!', '+۲۵ سلامتی و مهمات کامل', 3); if (p.alive) { p.hp = Math.min(100, p.hp + 25); p.armor = 50; var pw = TS.WEAPONS[p.primary]; p.res[pw.id] = TS.WEAPONS[p.primary].res; p.res[1] = 60; p.nades = Math.min(3, p.nades + 1); TS.updateAmmoHud(); } }
     } else {
       wv.timer -= dt;
       if (wv.timer <= 0) { wv.state = 0; wv.timer = 1.5; }
